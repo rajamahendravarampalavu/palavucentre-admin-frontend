@@ -183,6 +183,20 @@ export default function AdminDashboard() {
   const [expandedOrderId, setExpandedOrderId] = useState(null)
   const [selectedInquiryIds, setSelectedInquiryIds] = useState([])
   const activeSectionKey = activeTab === 'ordering' ? 'settings' : activeTab
+  const categoryFormRef = useRef(null)
+  const menuItemFormRef = useRef(null)
+  const galleryFormRef = useRef(null)
+  const reviewFormRef = useRef(null)
+  const offerFormRef = useRef(null)
+  const promoCodeFormRef = useRef(null)
+
+  // Scroll to specific form section when entering edit mode
+  useEffect(() => { if (categoryForm.id) categoryFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [categoryForm.id])
+  useEffect(() => { if (menuItemForm.id) menuItemFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [menuItemForm.id])
+  useEffect(() => { if (galleryForm.id) galleryFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [galleryForm.id])
+  useEffect(() => { if (reviewForm.id) reviewFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [reviewForm.id])
+  useEffect(() => { if (offerForm.id) offerFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [offerForm.id])
+  useEffect(() => { if (promoCodeForm.id) promoCodeFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [promoCodeForm.id])
 
   const scrollContentToTop = () => {
     contentRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' })
@@ -1385,7 +1399,7 @@ export default function AdminDashboard() {
 
               <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
               <SectionCard title="Menu Categories" description="Create and organize menu groups.">
-                <form onSubmit={submitCategory} noValidate className="grid gap-4">
+                <form ref={categoryFormRef} onSubmit={submitCategory} noValidate className="grid gap-4">
                   <Field label="Category Name">
                     <TextInput
                       required
@@ -1539,7 +1553,7 @@ export default function AdminDashboard() {
               </SectionCard>
  
               <SectionCard title="Menu Items" description="Manage dishes, pricing, availability, and images.">
-                <form onSubmit={submitMenuItem} noValidate className="grid gap-4">
+                <form ref={menuItemFormRef} onSubmit={submitMenuItem} noValidate className="grid gap-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <Field label="Item Name">
                       <TextInput
@@ -1984,7 +1998,7 @@ export default function AdminDashboard() {
 
           {activeTab === 'gallery' && (
             <SectionCard title="Gallery" description="Upload gallery photos locally or paste a media URL when needed.">
-              <form onSubmit={submitGalleryItem} noValidate className="grid gap-4">
+              <form ref={galleryFormRef} onSubmit={submitGalleryItem} noValidate className="grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="Title">
                     <TextInput
@@ -2164,7 +2178,7 @@ export default function AdminDashboard() {
 
           {activeTab === 'reviews' && (
             <SectionCard title="Reviews" description="Manually curate visible testimonials and copied review content.">
-              <form onSubmit={submitReview} noValidate className="grid gap-4">
+              <form ref={reviewFormRef} onSubmit={submitReview} noValidate className="grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <Field label="Reviewer Name">
                     <TextInput
@@ -2328,7 +2342,7 @@ export default function AdminDashboard() {
 
           {activeTab === 'offers' && (
             <SectionCard title="Offers" description="Create public promotions and CTA-driven campaigns.">
-              <form onSubmit={submitOffer} noValidate className="grid gap-4">
+              <form ref={offerFormRef} onSubmit={submitOffer} noValidate className="grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="Offer Title">
                     <TextInput
@@ -2539,7 +2553,7 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              <form onSubmit={submitPromoCode} noValidate className="mt-6 grid gap-4">
+              <form ref={promoCodeFormRef} onSubmit={submitPromoCode} noValidate className="mt-6 grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <Field label="Code">
                     <TextInput
