@@ -61,6 +61,8 @@ export const adminApi = {
 
   getInquiries: (params = {}) => apiRequest(`/admin/inquiries${buildQueryString({ ...defaultPageParams, ...params })}`),
   updateInquiry: (type, id, body) => apiRequest(`/admin/inquiries/${type}/${id}`, { method: 'PATCH', body }),
+  deleteInquiry: (uid) => apiRequest(`/admin/inquiries/${encodeURIComponent(uid)}`, { method: 'DELETE' }),
+  bulkDeleteInquiries: (ids) => apiRequest('/admin/inquiries/bulk', { method: 'DELETE', body: { ids } }),
 
   getSettings: () => apiRequest('/admin/settings'),
   updateSettings: (body) => apiRequest('/admin/settings', { method: 'PATCH', body }),

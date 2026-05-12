@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, MapPin } from 'lucide-react'
+import { ChevronDown, ChevronUp, MapPin, MessageSquare } from 'lucide-react'
 
 import { formatCurrency, formatDateTime } from '../../shared/formatters.js'
 import { paymentStatuses, orderStatuses } from './AdminDashboard.constants'
@@ -11,6 +11,18 @@ function getLatestPayment(order) {
 
   const paidPayment = order.payments.find((payment) => payment.status === 'paid' && payment.providerPaymentId)
   return paidPayment || order.payments[0]
+}
+
+function getOrderNotes(order) {
+  return String(order?.notes || '').trim()
+}
+
+function getNotesPreview(notes) {
+  if (!notes) {
+    return '—'
+  }
+
+  return notes.length > 60 ? `${notes.slice(0, 60)}...` : notes
 }
 
 export function SectionCard({ title, description, actions, children }) {
@@ -105,7 +117,7 @@ export function ImageUploadField({
   onChange,
   onFileSelect,
   isUploading,
-  previewAlt,
+  previewAlt = '',
   placeholder = 'Paste image URL or upload below',
   hint = 'Local uploads are stored on this server. Large images are auto-optimized down to 5MB, with 50 saved images total.',
 }) {
@@ -140,7 +152,7 @@ export function ImageUploadField({
 
       {value && (
         <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-slate-50">
-          <img src={value} alt={previewAlt} className="h-40 w-full object-cover" />
+          <img src={value} alt={previewAlt || ''} className="h-40 w-full object-cover" />
         </div>
       )}
     </div>
@@ -218,7 +230,7 @@ export function QuickPillButton({ active, onClick, disabled, children }) {
   )
 }
 
-export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId, busyKey, updateOrderField }) {
+export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId, busyKey, updateOrderField, isLoading = false }) {
   return (
     <div className="mt-6 overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4">
@@ -235,17 +247,34 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
 
       <div>
         <div className="divide-y divide-slate-200">
-          {filteredOrders.map((order) => {
+          {isLoading && (
+            <>
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_minmax(180px,0.7fr)_minmax(220px,0.9fr)_minmax(240px,1fr)_110px]">
+                  {Array.from({ length: 5 }).map((__, cellIndex) => (
+                    <div key={cellIndex} className="space-y-3">
+                      <div className="h-3 w-20 animate-pulse rounded bg-slate-200" />
+                      <div className="h-5 w-full animate-pulse rounded bg-slate-200" />
+                      <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
+
+          {!isLoading && filteredOrders.map((order) => {
             const isExpanded = expandedOrderId === order.id
             const isUpdatingOrder = busyKey === `order-${order.id}`
             const latestPayment = getLatestPayment(order)
             const customerName = order.customer?.name || 'Guest Customer'
             const customerContact = order.account?.email || order.customer?.phone || 'No contact info'
             const createdAtLabel = formatDateTime(order.createdAt)
+            const notes = getOrderNotes(order)
 
             return (
               <article key={order.id} className={`${isExpanded ? 'bg-slate-50/60' : 'bg-white hover:bg-slate-50/40'} transition`}>
-                <div className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.25fr)_minmax(240px,1fr)_minmax(260px,1fr)_110px] xl:items-start">
+                <div className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_minmax(180px,0.7fr)_minmax(220px,0.9fr)_minmax(240px,1fr)_110px] xl:items-start">
                   <div className="min-w-0">
                     <p className="mb-2 text-[10px] font-semibold uppercase tracking-[1.6px] text-slate-500">Order</p>
                     <button
@@ -274,6 +303,16 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
                         {order.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}
                       </div>
                     )}
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-[1.6px] text-slate-500">Notes</p>
+                    <p
+                      title={notes || undefined}
+                      className={`break-words text-sm leading-6 ${notes ? 'text-slate-600' : 'text-slate-400'}`}
+                    >
+                      {getNotesPreview(notes)}
+                    </p>
                   </div>
 
                   <div className="min-w-0">
@@ -359,6 +398,19 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
                             <p className="mt-2 text-sm leading-6 text-slate-800">
                               {order.customer?.address || 'No pickup store captured'}
                             </p>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[1.8px] text-slate-500">
+                              <MessageSquare className="h-3.5 w-3.5" />
+                              Customer Notes
+                            </div>
+                            {notes ? (
+                              <div className="mt-3 rounded-xl border border-amber-200 border-l-4 border-l-amber-500 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                                {notes}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-sm italic text-slate-400">No special instructions</p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -458,7 +510,7 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
             )
           })}
 
-          {filteredOrders.length === 0 && (
+          {!isLoading && filteredOrders.length === 0 && (
             <div className="px-5 py-12 text-center text-sm text-slate-600">No orders match the current filters.</div>
           )}
         </div>
