@@ -595,7 +595,7 @@ export default function AdminDashboard() {
     if (!admin) return
     const interval = setInterval(() => {
       loadSectionEvent(activeSectionKey, { force: true, silent: true })
-    }, 30000)
+    }, 5000)
     return () => clearInterval(interval)
   }, [admin, activeSectionKey])
 
