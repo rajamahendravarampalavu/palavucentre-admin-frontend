@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
-import { API_BASE_URL, ASSET_BASE_URL } from '../shared/api/api-config'
+import { API_BASE_URL, ASSET_BASE_URL } from '../../shared/api/api-config'
 import {
   BadgePercent,
   ChevronDown,
