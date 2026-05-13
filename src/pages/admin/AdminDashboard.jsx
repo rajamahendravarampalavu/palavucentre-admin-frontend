@@ -591,6 +591,14 @@ export default function AdminDashboard() {
     loadSectionEvent('orders', { force: true, silent: true })
   }, [activeSectionKey, admin, loadedSections.orders, orderDateApiParams])
 
+  useEffect(() => {
+    if (!admin) return
+    const interval = setInterval(() => {
+      loadSectionEvent(activeSectionKey, { force: true, silent: true })
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [admin, activeSectionKey])
+
   const refreshActiveSection = () => loadSection(activeSectionKey, { force: true })
 
   const canLoadMoreSection = (sectionKey) =>
