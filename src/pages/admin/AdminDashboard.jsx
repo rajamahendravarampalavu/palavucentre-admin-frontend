@@ -595,7 +595,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!admin) return
-    const wsUrl = API_BASE_URL.replace('/api', '')
+    const wsUrl = API_BASE_URL.startsWith('http') ? API_BASE_URL.replace(/\/api$/, '') : `${window.location.protocol}//${window.location.host}`
     const socket = io(wsUrl, { path: '/ws/', withCredentials: true, transports: ['websocket', 'polling'] })
     socket.on('connect', () => socket.emit('join-admin'))
     socket.on('new-order', () => {
