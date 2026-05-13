@@ -1,4 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { io } from 'socket.io-client'
+import { API_BASE_URL, ASSET_BASE_URL } from '../shared/api/api-config'
 import {
   BadgePercent,
   ChevronDown,
@@ -593,11 +595,27 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!admin) return
-    const interval = setInterval(() => {
-      loadSectionEvent(activeSectionKey, { force: true, silent: true })
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [admin, activeSectionKey])
+    const wsUrl = API_BASE_URL.replace('/api', '')
+    const socket = io(wsUrl, { path: '/ws', withCredentials: true })
+    socket.emit('join-admin')
+    socket.on('new-order', () => {
+      loadSectionEvent('orders', { force: true, silent: true })
+      loadSectionEvent('overview', { force: true, silent: true })
+    })
+    socket.on('order-updated', () => {
+      loadSectionEvent('orders', { force: true, silent: true })
+      loadSectionEvent('overview', { force: true, silent: true })
+    })
+    socket.on('payment-verified', () => {
+      loadSectionEvent('orders', { force: true, silent: true })
+      loadSectionEvent('overview', { force: true, silent: true })
+    })
+    socket.on('payment-webhook', () => {
+      loadSectionEvent('orders', { force: true, silent: true })
+      loadSectionEvent('overview', { force: true, silent: true })
+    })
+    return () => socket.disconnect()
+  }, [admin])
 
   const refreshActiveSection = () => loadSection(activeSectionKey, { force: true })
 
