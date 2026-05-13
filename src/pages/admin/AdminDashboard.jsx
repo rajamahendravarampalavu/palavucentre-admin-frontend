@@ -596,8 +596,8 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!admin) return
     const wsUrl = API_BASE_URL.replace('/api', '')
-    const socket = io(wsUrl, { path: '/ws/', withCredentials: true })
-    socket.emit('join-admin')
+    const socket = io(wsUrl, { path: '/ws/', withCredentials: true, transports: ['websocket', 'polling'] })
+    socket.on('connect', () => socket.emit('join-admin'))
     socket.on('new-order', () => {
       loadSectionEvent('orders', { force: true, silent: true })
       loadSectionEvent('overview', { force: true, silent: true })
