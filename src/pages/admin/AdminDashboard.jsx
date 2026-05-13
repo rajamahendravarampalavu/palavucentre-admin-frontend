@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { API_BASE_URL, ASSET_BASE_URL } from '../../shared/api/api-config'
+import { playNotificationSound, requestNotificationPermission, showBrowserNotification, updateTabTitle } from '../../shared/notifications'
 import {
   BadgePercent,
   ChevronDown,
@@ -551,6 +552,7 @@ export default function AdminDashboard() {
         }
 
         setAdmin(sessionResponse.data.admin)
+        requestNotificationPermission()
         await loadSectionEvent('overview', { force: true, silent: true })
       } catch (requestError) {
         if (!isMounted) {
@@ -598,7 +600,9 @@ export default function AdminDashboard() {
     const wsUrl = API_BASE_URL.startsWith('http') ? API_BASE_URL.replace(/\/api$/, '') : `${window.location.protocol}//${window.location.host}`
     const socket = io(wsUrl, { path: '/ws/', withCredentials: true, transports: ['websocket', 'polling'] })
     socket.on('connect', () => socket.emit('join-admin'))
-    socket.on('new-order', () => {
+    socket.on('new-order', (data) => {
+      playNotificationSound()
+      showBrowserNotification('🔔 New Order!', `Order ${data?.orderNumber || ''} received`)
       loadSectionEvent('orders', { force: true, silent: true })
       loadSectionEvent('overview', { force: true, silent: true })
     })
