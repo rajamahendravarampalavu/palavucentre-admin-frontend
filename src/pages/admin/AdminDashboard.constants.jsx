@@ -126,6 +126,7 @@ export const initialMenuItemForm = {
   imageUrl: '',
   imagePublicId: '',
   price: '',
+  variants: [],
   isVeg: false,
   isBestseller: false,
   isAvailable: true,

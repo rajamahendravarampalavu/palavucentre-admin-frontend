@@ -1,7 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
-import { io } from 'socket.io-client'
-import { API_BASE_URL, ASSET_BASE_URL } from '../../shared/api/api-config'
-import { playNotificationSound, requestNotificationPermission, showBrowserNotification, updateTabTitle } from '../../shared/notifications'
+import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import {
   BadgePercent,
   ChevronDown,
@@ -21,7 +18,7 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 import { adminApi } from '../../api/adminApi'
 import { formatCurrency, formatDate, formatDateTime } from '../../shared/formatters.js'
@@ -93,30 +90,6 @@ const initialPaginationState = {
   orders: { page: 1, totalPages: 1 },
 }
 
-const orderDatePresets = [
-  { key: 'today', label: 'Today' },
-  { key: 'yesterday', label: 'Yesterday' },
-  { key: 'last7', label: 'Last 7 days' },
-  { key: 'last30', label: 'Last 30 days' },
-  { key: 'thisMonth', label: 'This Month' },
-  { key: 'lastMonth', label: 'Last Month' },
-  { key: 'custom', label: 'Custom' },
-]
-
-const supportedOrderDatePresets = new Set(orderDatePresets.filter((preset) => preset.key !== 'custom').map((preset) => preset.key))
-
-function dateInputToIstIso(value, endOfDay = false) {
-  if (!value) {
-    return undefined
-  }
-
-  return `${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}+05:30`
-}
-
-function getInquiryUid(type, item) {
-  return item.uid || `${type}:${item.id}`
-}
-
 function SectionSkeleton({ cards = 3 }) {
   return (
     <div className="grid gap-4">
@@ -132,8 +105,6 @@ function SectionSkeleton({ cards = 3 }) {
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const contentRef = useRef(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [admin, setAdmin] = useState(null)
   const [dashboard, setDashboard] = useState(null)
@@ -172,43 +143,8 @@ export default function AdminDashboard() {
   const [orderSearch, setOrderSearch] = useState('')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
   const [orderPaymentFilter, setOrderPaymentFilter] = useState('all')
-  const [orderDatePreset, setOrderDatePreset] = useState(
-    () => searchParams.get('datePreset') || (searchParams.get('dateFrom') || searchParams.get('dateTo') ? 'custom' : 'all'),
-  )
-  const [orderDateFrom, setOrderDateFrom] = useState(() => searchParams.get('dateFrom') || '')
-  const [orderDateTo, setOrderDateTo] = useState(() => searchParams.get('dateTo') || '')
-  const [orderSummary, setOrderSummary] = useState({
-    filteredCount: 0,
-    filteredRevenue: 0,
-    dateFrom: null,
-    dateTo: null,
-  })
   const [expandedOrderId, setExpandedOrderId] = useState(null)
-  const [selectedInquiryIds, setSelectedInquiryIds] = useState([])
   const activeSectionKey = activeTab === 'ordering' ? 'settings' : activeTab
-  const categoryFormRef = useRef(null)
-  const menuItemFormRef = useRef(null)
-  const galleryFormRef = useRef(null)
-  const reviewFormRef = useRef(null)
-  const offerFormRef = useRef(null)
-  const promoCodeFormRef = useRef(null)
-
-  // Scroll to specific form section when entering edit mode
-  useEffect(() => { if (categoryForm.id) categoryFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [categoryForm.id])
-  useEffect(() => { if (menuItemForm.id) menuItemFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [menuItemForm.id])
-  useEffect(() => { if (galleryForm.id) galleryFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [galleryForm.id])
-  useEffect(() => { if (reviewForm.id) reviewFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [reviewForm.id])
-  useEffect(() => { if (offerForm.id) offerFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [offerForm.id])
-  useEffect(() => { if (promoCodeForm.id) promoCodeFormRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' }) }, [promoCodeForm.id])
-
-  const scrollContentToTop = () => {
-    contentRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' })
-  }
-
-  const handleTabChange = (tabId) => {
-    setActiveTab(tabId)
-    scrollContentToTop()
-  }
 
   const showAdminAlert = (message) => {
     setError(message)
@@ -335,77 +271,6 @@ export default function AdminDashboard() {
       .sort((firstOrder, secondOrder) => new Date(secondOrder.createdAt) - new Date(firstOrder.createdAt))
   }, [orderPaymentFilter, orderSearch, orderStatusFilter, orders])
 
-  const orderDateApiParams = useMemo(() => {
-    if (supportedOrderDatePresets.has(orderDatePreset)) {
-      return { datePreset: orderDatePreset }
-    }
-
-    if (orderDatePreset === 'custom') {
-      return {
-        dateFrom: dateInputToIstIso(orderDateFrom),
-        dateTo: dateInputToIstIso(orderDateTo, true),
-      }
-    }
-
-    return {}
-  }, [orderDateFrom, orderDatePreset, orderDateTo])
-
-  const orderDateRangeLabel =
-    orderSummary.dateFrom || orderSummary.dateTo
-      ? `${formatDate(orderSummary.dateFrom)} - ${formatDate(orderSummary.dateTo)}`
-      : 'All dates'
-
-  const persistOrderDateFilter = ({ preset, dateFrom, dateTo }) => {
-    const nextParams = new URLSearchParams(searchParams)
-    nextParams.delete('datePreset')
-    nextParams.delete('dateFrom')
-    nextParams.delete('dateTo')
-
-    if (preset && preset !== 'all') {
-      nextParams.set('datePreset', preset)
-    }
-
-    if (dateFrom) {
-      nextParams.set('dateFrom', dateFrom)
-    }
-
-    if (dateTo) {
-      nextParams.set('dateTo', dateTo)
-    }
-
-    setSearchParams(nextParams, { replace: true })
-  }
-
-  const changeOrderDatePreset = (preset) => {
-    const nextFrom = preset === 'custom' ? orderDateFrom : ''
-    const nextTo = preset === 'custom' ? orderDateTo : ''
-
-    setOrderDatePreset(preset)
-    setOrderDateFrom(nextFrom)
-    setOrderDateTo(nextTo)
-    setExpandedOrderId(null)
-    persistOrderDateFilter({ preset, dateFrom: nextFrom, dateTo: nextTo })
-  }
-
-  const changeCustomOrderDate = (field, value) => {
-    const nextFrom = field === 'from' ? value : orderDateFrom
-    const nextTo = field === 'to' ? value : orderDateTo
-
-    setOrderDatePreset('custom')
-    setOrderDateFrom(nextFrom)
-    setOrderDateTo(nextTo)
-    setExpandedOrderId(null)
-    persistOrderDateFilter({ preset: 'custom', dateFrom: nextFrom, dateTo: nextTo })
-  }
-
-  const clearOrderDateFilter = () => {
-    setOrderDatePreset('all')
-    setOrderDateFrom('')
-    setOrderDateTo('')
-    setExpandedOrderId(null)
-    persistOrderDateFilter({ preset: 'all', dateFrom: '', dateTo: '' })
-  }
-
   const fetchDashboard = async () => {
     const response = await adminApi.getDashboard()
     setDashboard(response.data)
@@ -462,14 +327,8 @@ export default function AdminDashboard() {
   }
 
   const fetchOrders = async ({ page = 1, append = false } = {}) => {
-    const response = await adminApi.getOrders({ page, limit: 20, ...orderDateApiParams })
+    const response = await adminApi.getOrders({ page, limit: 20 })
     setOrders((current) => (append ? [...current, ...(response.data.items || [])] : response.data.items || []))
-    setOrderSummary({
-      filteredCount: response.data.filteredCount || 0,
-      filteredRevenue: response.data.filteredRevenue || 0,
-      dateFrom: response.data.dateFrom || null,
-      dateTo: response.data.dateTo || null,
-    })
     setSectionPagination((current) => ({
       ...current,
       orders: response.data.pagination || current.orders,
@@ -479,12 +338,6 @@ export default function AdminDashboard() {
   const fetchInquiries = async () => {
     const response = await adminApi.getInquiries({ page: 1, limit: 20 })
     setInquiries(response.data)
-    const availableIds = new Set(
-      Object.entries(response.data || {}).flatMap(([type, group]) =>
-        (group.items || []).map((item) => getInquiryUid(type, item)),
-      ),
-    )
-    setSelectedInquiryIds((current) => current.filter((uid) => availableIds.has(uid)))
   }
 
   const fetchSettings = async () => {
@@ -552,7 +405,6 @@ export default function AdminDashboard() {
         }
 
         setAdmin(sessionResponse.data.admin)
-        requestNotificationPermission()
         await loadSectionEvent('overview', { force: true, silent: true })
       } catch (requestError) {
         if (!isMounted) {
@@ -586,40 +438,6 @@ export default function AdminDashboard() {
 
     loadSectionEvent(activeSectionKey, { silent: true })
   }, [activeSectionKey, admin])
-
-  useEffect(() => {
-    if (!admin || activeSectionKey !== 'orders' || !loadedSections.orders) {
-      return
-    }
-
-    loadSectionEvent('orders', { force: true, silent: true })
-  }, [activeSectionKey, admin, loadedSections.orders, orderDateApiParams])
-
-  useEffect(() => {
-    if (!admin) return
-    const wsUrl = API_BASE_URL.startsWith('http') ? API_BASE_URL.replace(/\/api$/, '') : `${window.location.protocol}//${window.location.host}`
-    const socket = io(wsUrl, { path: '/ws/', withCredentials: true, transports: ['websocket', 'polling'] })
-    socket.on('connect', () => socket.emit('join-admin'))
-    socket.on('new-order', (data) => {
-      playNotificationSound()
-      showBrowserNotification('🔔 New Order!', `Order ${data?.orderNumber || ''} received`)
-      loadSectionEvent('orders', { force: true, silent: true })
-      loadSectionEvent('overview', { force: true, silent: true })
-    })
-    socket.on('order-updated', () => {
-      loadSectionEvent('orders', { force: true, silent: true })
-      loadSectionEvent('overview', { force: true, silent: true })
-    })
-    socket.on('payment-verified', () => {
-      loadSectionEvent('orders', { force: true, silent: true })
-      loadSectionEvent('overview', { force: true, silent: true })
-    })
-    socket.on('payment-webhook', () => {
-      loadSectionEvent('orders', { force: true, silent: true })
-      loadSectionEvent('overview', { force: true, silent: true })
-    })
-    return () => socket.disconnect()
-  }, [admin])
 
   const refreshActiveSection = () => loadSection(activeSectionKey, { force: true })
 
@@ -769,6 +587,7 @@ export default function AdminDashboard() {
         imageUrl: emptyToUndefined(menuItemForm.imageUrl),
         imagePublicId: emptyToUndefined(menuItemForm.imagePublicId),
         price: Number(menuItemForm.price),
+        variants: (menuItemForm.variants || []).filter((v) => v.label && v.pricePaise > 0),
         isVeg: menuItemForm.isVeg,
         isBestseller: menuItemForm.isBestseller,
         isAvailable: menuItemForm.isAvailable,
@@ -1090,101 +909,6 @@ export default function AdminDashboard() {
     }
   }
 
-  const removeInquiryIdsFromState = (ids) => {
-    const idSet = new Set(ids)
-
-    setInquiries((current) =>
-      Object.fromEntries(
-        Object.entries(current).map(([type, group]) => [
-          type,
-          {
-            ...group,
-            items: (group.items || []).filter((item) => !idSet.has(getInquiryUid(type, item))),
-          },
-        ]),
-      ),
-    )
-  }
-
-  const getAllInquiryUids = (type) => (inquiries[type]?.items || []).map((item) => getInquiryUid(type, item))
-
-  const isInquirySelected = (uid) => selectedInquiryIds.includes(uid)
-
-  const toggleInquirySelection = (uid) => {
-    setSelectedInquiryIds((current) =>
-      current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid],
-    )
-  }
-
-  const toggleInquiryGroupSelection = (type) => {
-    const groupIds = getAllInquiryUids(type)
-    const allSelected = groupIds.length > 0 && groupIds.every((uid) => selectedInquiryIds.includes(uid))
-
-    setSelectedInquiryIds((current) => {
-      if (allSelected) {
-        return current.filter((uid) => !groupIds.includes(uid))
-      }
-
-      return Array.from(new Set([...current, ...groupIds]))
-    })
-  }
-
-  const deleteSingleInquiry = async (type, item) => {
-    const uid = getInquiryUid(type, item)
-
-    if (!window.confirm(`Delete this inquiry from ${item.name}? This cannot be undone.`)) {
-      return
-    }
-
-    const previousInquiries = inquiries
-    const previousSelectedIds = selectedInquiryIds
-
-    removeInquiryIdsFromState([uid])
-    setSelectedInquiryIds((current) => current.filter((selectedId) => selectedId !== uid))
-
-    try {
-      setBusyKey(`delete-inquiry-${uid}`)
-      setError('')
-      setNotice('')
-      await adminApi.deleteInquiry(uid)
-      setNotice('Inquiry deleted')
-      await fetchDashboard()
-    } catch (requestError) {
-      setInquiries(previousInquiries)
-      setSelectedInquiryIds(previousSelectedIds)
-      setError(requestError.message || 'Could not delete inquiry')
-    } finally {
-      setBusyKey('')
-    }
-  }
-
-  const deleteSelectedInquiries = async () => {
-    if (selectedInquiryIds.length === 0 || !window.confirm(`Delete ${selectedInquiryIds.length} inquiries? This cannot be undone.`)) {
-      return
-    }
-
-    const ids = selectedInquiryIds
-    const previousInquiries = inquiries
-
-    removeInquiryIdsFromState(ids)
-    setSelectedInquiryIds([])
-
-    try {
-      setBusyKey('bulk-delete-inquiries')
-      setError('')
-      setNotice('')
-      const response = await adminApi.bulkDeleteInquiries(ids)
-      setNotice(`${response.deleted || response.data?.deleted || ids.length} inquiries deleted`)
-      await fetchDashboard()
-    } catch (requestError) {
-      setInquiries(previousInquiries)
-      setSelectedInquiryIds(ids)
-      setError(requestError.message || 'Could not delete selected inquiries')
-    } finally {
-      setBusyKey('')
-    }
-  }
-
   const activeTabConfig = tabs.find((tab) => tab.id === activeTab) || tabs[0]
   const sidebarBrandName = getSidebarBrandName(settings?.restaurantName)
   const sidebarAdminName = getSidebarAdminName(admin)
@@ -1206,7 +930,7 @@ export default function AdminDashboard() {
               {settings?.logoUrl ? (
                 <img
                   src={settings.logoUrl}
-                  alt="PalavuCentre logo"
+                  alt={sidebarBrandName}
                   className="h-12 w-12 rounded-xl border border-slate-200 object-cover"
                 />
               ) : (
@@ -1246,7 +970,7 @@ export default function AdminDashboard() {
                         return (
                           <button
                             key={tab.id}
-                            onClick={() => handleTabChange(tab.id)}
+                            onClick={() => setActiveTab(tab.id)}
                             className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left transition ${
                               activeTab === tab.id
                                 ? 'bg-slate-900 text-white'
@@ -1304,7 +1028,7 @@ export default function AdminDashboard() {
             </div>
           </header>
 
-          <main ref={contentRef} className="px-0 py-6 pr-2">
+          <main className="px-0 py-6 pr-2">
             {error && (
               <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
                 {error}
@@ -1324,7 +1048,7 @@ export default function AdminDashboard() {
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => handleTabChange(tab.id)}
+                    onClick={() => setActiveTab(tab.id)}
                     className={`flex shrink-0 items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition ${
                       activeTab === tab.id
                         ? 'border-blue-600 bg-blue-600 text-white'
@@ -1429,7 +1153,7 @@ export default function AdminDashboard() {
 
               <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
               <SectionCard title="Menu Categories" description="Create and organize menu groups.">
-                <form ref={categoryFormRef} onSubmit={submitCategory} noValidate className="grid gap-4">
+                <form onSubmit={submitCategory} noValidate className="grid gap-4">
                   <Field label="Category Name">
                     <TextInput
                       required
@@ -1583,7 +1307,7 @@ export default function AdminDashboard() {
               </SectionCard>
  
               <SectionCard title="Menu Items" description="Manage dishes, pricing, availability, and images.">
-                <form ref={menuItemFormRef} onSubmit={submitMenuItem} noValidate className="grid gap-4">
+                <form onSubmit={submitMenuItem} noValidate className="grid gap-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <Field label="Item Name">
                       <TextInput
@@ -1661,6 +1385,8 @@ export default function AdminDashboard() {
                       placeholder="Longer dish description"
                     />
                   </Field>
+
+                  {/* Variant Editor — hidden until customer frontend supports it */}
 
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="Price (INR)">
@@ -1823,6 +1549,7 @@ export default function AdminDashboard() {
                               imageUrl: item.img || '',
                               imagePublicId: '',
                               price: String(item.price),
+                              variants: item.variants || [],
                               isVeg: item.veg,
                               isBestseller: item.bestseller,
                               isAvailable: item.available,
@@ -1882,61 +1609,6 @@ export default function AdminDashboard() {
               description="Review backend-stored orders, linked customer accounts, promo usage, and update order statuses in real time."
             >
               <div className="rounded-[18px] border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                <div className="mb-5 border-b border-slate-200 pb-5">
-                  <div className="flex flex-wrap gap-2">
-                    {orderDatePresets.map((preset) => (
-                      <button
-                        key={preset.key}
-                        type="button"
-                        onClick={() => changeOrderDatePreset(preset.key)}
-                        className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
-                          orderDatePreset === preset.key
-                            ? 'border-amber-500 bg-amber-50 text-amber-700'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                    {orderDatePreset !== 'all' && (
-                      <button
-                        type="button"
-                        onClick={clearOrderDateFilter}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
-                      >
-                        Clear ×
-                      </button>
-                    )}
-                  </div>
-
-                  {orderDatePreset === 'custom' && (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:max-w-xl">
-                      <Field label="From">
-                        <TextInput
-                          type="date"
-                          value={orderDateFrom}
-                          onChange={(event) => changeCustomOrderDate('from', event.target.value)}
-                          className="bg-slate-50"
-                        />
-                      </Field>
-                      <Field label="To">
-                        <TextInput
-                          type="date"
-                          value={orderDateTo}
-                          onChange={(event) => changeCustomOrderDate('to', event.target.value)}
-                          className="bg-slate-50"
-                        />
-                      </Field>
-                    </div>
-                  )}
-
-                  <p className="mt-4 text-sm text-slate-600">
-                    Showing <span className="font-semibold text-slate-900">{orderSummary.filteredCount}</span> orders ·{' '}
-                    {orderDateRangeLabel} · Total:{' '}
-                    <span className="font-semibold text-slate-900">{formatCurrency(orderSummary.filteredRevenue)}</span>
-                  </p>
-                </div>
-
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.15fr)_210px_210px_auto] xl:items-center">
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -2009,7 +1681,6 @@ export default function AdminDashboard() {
                 setExpandedOrderId={setExpandedOrderId}
                 busyKey={busyKey}
                 updateOrderField={updateOrderField}
-                isLoading={sectionLoading.orders && loadedSections.orders}
               />
               {canLoadMoreSection('orders') && (
                 <div className="mt-4">
@@ -2028,7 +1699,7 @@ export default function AdminDashboard() {
 
           {activeTab === 'gallery' && (
             <SectionCard title="Gallery" description="Upload gallery photos locally or paste a media URL when needed.">
-              <form ref={galleryFormRef} onSubmit={submitGalleryItem} noValidate className="grid gap-4">
+              <form onSubmit={submitGalleryItem} noValidate className="grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="Title">
                     <TextInput
@@ -2099,7 +1770,7 @@ export default function AdminDashboard() {
                       })
                     }
                     isUploading={busyKey === 'upload-gallery-image'}
-                    previewAlt={galleryForm.title || 'Gallery photo'}
+                    previewAlt={galleryForm.title || 'Gallery image'}
                     placeholder="Paste image URL or upload from your device"
                   />
                 ) : (
@@ -2146,7 +1817,7 @@ export default function AdminDashboard() {
                     {item.mediaType === 'video' ? (
                       <video src={item.url} controls className="h-48 w-full bg-black object-cover" />
                     ) : (
-                      <img src={item.url} alt={item.altText || item.title || 'Gallery photo'} className="h-48 w-full object-cover" />
+                      <img src={item.url} alt={item.altText || item.title || 'Gallery'} className="h-48 w-full object-cover" />
                     )}
                     <div className="p-4">
                       <p className="font-semibold text-slate-900">{item.title || 'Untitled media'}</p>
@@ -2208,7 +1879,7 @@ export default function AdminDashboard() {
 
           {activeTab === 'reviews' && (
             <SectionCard title="Reviews" description="Manually curate visible testimonials and copied review content.">
-              <form ref={reviewFormRef} onSubmit={submitReview} noValidate className="grid gap-4">
+              <form onSubmit={submitReview} noValidate className="grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <Field label="Reviewer Name">
                     <TextInput
@@ -2372,7 +2043,7 @@ export default function AdminDashboard() {
 
           {activeTab === 'offers' && (
             <SectionCard title="Offers" description="Create public promotions and CTA-driven campaigns.">
-              <form ref={offerFormRef} onSubmit={submitOffer} noValidate className="grid gap-4">
+              <form onSubmit={submitOffer} noValidate className="grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="Offer Title">
                     <TextInput
@@ -2583,7 +2254,7 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              <form ref={promoCodeFormRef} onSubmit={submitPromoCode} noValidate className="mt-6 grid gap-4">
+              <form onSubmit={submitPromoCode} noValidate className="mt-6 grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <Field label="Code">
                     <TextInput
@@ -2834,111 +2505,48 @@ export default function AdminDashboard() {
                 { key: 'contact', label: 'Contact Inquiries' },
                 { key: 'franchise', label: 'Franchise Inquiries' },
                 { key: 'catering', label: 'Catering Inquiries' },
-              ].map((group) => {
-                const groupItems = inquiries[group.key]?.items || []
-                const groupIds = getAllInquiryUids(group.key)
-                const allSelected = groupIds.length > 0 && groupIds.every((uid) => selectedInquiryIds.includes(uid))
-
-                return (
-                  <SectionCard
-                    key={group.key}
-                    title={group.label}
-                    description="Update inquiry status as the team follows up."
-                    actions={
-                      <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
-                        <input
-                          type="checkbox"
-                          checked={allSelected}
-                          disabled={groupIds.length === 0}
-                          onChange={() => toggleInquiryGroupSelection(group.key)}
-                          className="h-4 w-4 accent-slate-900"
-                        />
-                        Select all
-                      </label>
-                    }
-                  >
-                    <div className="space-y-4">
-                      {groupItems.map((item) => {
-                        const uid = getInquiryUid(group.key, item)
-
-                        return (
-                          <div
-                            key={uid}
-                            className="group relative rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+              ].map((group) => (
+                <SectionCard
+                  key={group.key}
+                  title={group.label}
+                  description="Update inquiry status as the team follows up."
+                >
+                  <div className="space-y-4">
+                    {(inquiries[group.key]?.items || []).map((item) => (
+                      <div key={item.id} className="rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4">
+                        <p className="font-semibold text-slate-900">{item.name}</p>
+                        <p className="mt-1 text-sm text-slate-600">{item.phone}</p>
+                        {item.email && <p className="text-sm text-slate-600">{item.email}</p>}
+                        {item.city && <p className="text-sm text-slate-600">City: {item.city}</p>}
+                        {item.eventType && (
+                          <p className="text-sm text-slate-600">
+                            {item.eventType} | {item.guestCount} guests
+                          </p>
+                        )}
+                        {item.message && <p className="mt-3 text-sm leading-7 text-slate-600">{item.message}</p>}
+                        <p className="mt-3 text-xs text-slate-500">{formatDateTime(item.createdAt)}</p>
+                        <div className="mt-4">
+                          <SelectInput
+                            value={item.status}
+                            onChange={(event) => updateInquiryField(group.key, item.id, event.target.value)}
+                            disabled={busyKey === `inquiry-${group.key}-${item.id}`}
                           >
-                            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3">
-                              <input
-                                type="checkbox"
-                                checked={isInquirySelected(uid)}
-                                onChange={() => toggleInquirySelection(uid)}
-                                className="mt-1 h-4 w-4 accent-slate-900"
-                                aria-label={`Select inquiry from ${item.name}`}
-                              />
-                              <div className="min-w-0">
-                                <p className="font-semibold text-slate-900">{item.name}</p>
-                                {item.subject && <p className="mt-1 text-sm font-medium text-slate-700">{item.subject}</p>}
-                                {item.phone && <p className="mt-1 text-sm text-slate-600">{item.phone}</p>}
-                                {item.email && <p className="text-sm text-slate-600">{item.email}</p>}
-                                {item.city && <p className="text-sm text-slate-600">City: {item.city}</p>}
-                                {item.eventType && (
-                                  <p className="text-sm text-slate-600">
-                                    {item.eventType} | {item.guestCount} guests
-                                  </p>
-                                )}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => deleteSingleInquiry(group.key, item)}
-                                disabled={busyKey === `delete-inquiry-${uid}`}
-                                className="rounded-full border border-red-100 p-2 text-red-400 opacity-0 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 group-hover:opacity-100"
-                                aria-label={`Delete inquiry from ${item.name}`}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
+                            {inquiryStatuses.map((status) => (
+                              <option key={status} value={status}>
+                                {toLabelCase(status)}
+                              </option>
+                            ))}
+                          </SelectInput>
+                        </div>
+                      </div>
+                    ))}
 
-                            {item.message && <p className="mt-3 text-sm leading-7 text-slate-600">{item.message}</p>}
-                            <p className="mt-3 text-xs text-slate-500">{formatDateTime(item.createdAt)}</p>
-                            <div className="mt-4">
-                              <SelectInput
-                                value={item.status}
-                                onChange={(event) => updateInquiryField(group.key, item.id, event.target.value)}
-                                disabled={busyKey === `inquiry-${group.key}-${item.id}`}
-                              >
-                                {inquiryStatuses.map((status) => (
-                                  <option key={status} value={status}>
-                                    {toLabelCase(status)}
-                                  </option>
-                                ))}
-                              </SelectInput>
-                            </div>
-                          </div>
-                        )
-                      })}
-
-                      {groupItems.length === 0 && (
-                        <p className="text-sm text-slate-600">No {group.key} inquiries yet.</p>
-                      )}
-                    </div>
-                  </SectionCard>
-                )
-              })}
-            </div>
-          )}
-
-          {activeTab === 'inquiries' && selectedInquiryIds.length > 0 && (
-            <div className="fixed bottom-5 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-[0_18px_50px_rgba(15,23,42,0.28)]">
-              <p className="text-sm font-semibold">{selectedInquiryIds.length} selected</p>
-              <ActionButton
-                type="button"
-                variant="danger"
-                onClick={deleteSelectedInquiries}
-                disabled={busyKey === 'bulk-delete-inquiries'}
-                className="inline-flex items-center gap-2"
-              >
-                <Trash2 className="h-4 w-4" />
-                {busyKey === 'bulk-delete-inquiries' ? 'Deleting...' : 'Delete Selected'}
-              </ActionButton>
+                    {(!inquiries[group.key]?.items || inquiries[group.key].items.length === 0) && (
+                      <p className="text-sm text-slate-600">No {group.key} inquiries yet.</p>
+                    )}
+                  </div>
+                </SectionCard>
+              ))}
             </div>
           )}
 
@@ -2999,7 +2607,7 @@ export default function AdminDashboard() {
                       })
                     }
                     isUploading={busyKey === 'upload-settings-logo'}
-                    previewAlt="PalavuCentre logo"
+                    previewAlt="Restaurant logo"
                     placeholder="Paste logo URL or upload a logo"
                   />
 
@@ -3043,7 +2651,7 @@ export default function AdminDashboard() {
                           })
                         }
                         isUploading={busyKey === 'upload-settings-hero'}
-                        previewAlt="PalavuCentre restaurant"
+                        previewAlt="Hero media"
                         placeholder="Paste hero image URL or upload from device"
                         hint="Only the first hero media item is edited here."
                       />
