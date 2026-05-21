@@ -1393,6 +1393,29 @@ export default function AdminDashboard() {
                     />
                   </Field>
 
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[1.6px] text-slate-500">Size Variants (Half/Full)</p>
+                        <p className="mt-1 text-xs text-slate-500">Price in paise: 18000 = ₹180</p>
+                      </div>
+                      <button type="button" onClick={() => setMenuItemForm((c) => ({ ...c, variants: [...(c.variants || []), { label: '', pricePaise: '' }] }))}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">+ Add</button>
+                    </div>
+                    {(!menuItemForm.variants || menuItemForm.variants.length === 0) && <p className="text-xs text-slate-400 italic">No variants — uses base price only.</p>}
+                    <div className="space-y-2">
+                      {(menuItemForm.variants || []).map((v, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <TextInput placeholder="Half / Full" value={v.label} onChange={(e) => setMenuItemForm((c) => ({ ...c, variants: c.variants.map((x, i) => i === idx ? { ...x, label: e.target.value } : x) }))} />
+                          <TextInput type="number" placeholder="Paise" value={v.pricePaise} onChange={(e) => setMenuItemForm((c) => ({ ...c, variants: c.variants.map((x, i) => i === idx ? { ...x, pricePaise: Number(e.target.value) || '' } : x) }))} />
+                          <span className="text-xs text-slate-400 w-14 shrink-0">{v.pricePaise ? `₹${Math.round(v.pricePaise / 100)}` : ''}</span>
+                          <button type="button" onClick={() => setMenuItemForm((c) => ({ ...c, variants: c.variants.filter((_, i) => i !== idx) }))}
+                            className="rounded-full border border-red-200 p-1.5 text-red-500 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Variant Editor — hidden until customer frontend supports it */}
 
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
