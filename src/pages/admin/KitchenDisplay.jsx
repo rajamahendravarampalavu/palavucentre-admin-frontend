@@ -188,7 +188,7 @@ export default function KitchenDisplay() {
       <div className="sticky top-0 z-50 bg-white border-b border-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] px-4 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-[22px] font-semibold text-slate-950">Kitchen Display</h1>
+            <h1 className="text-[22px] font-semibold text-slate-950">Orders & Print</h1>
             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${connected ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
               {connected ? '● Live' : '● Offline'}
             </span>
