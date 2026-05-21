@@ -49,7 +49,7 @@ function BillPrint({ order, onClose }) {
         {/* Printable Bill */}
         <div ref={printRef} className="p-6 print-bill" style={{ fontFamily: 'monospace', fontSize: '12px', color: '#000' }}>
           <div className="text-center mb-4">
-            <h2 className="text-base font-bold text-black">RajaMahendravaram Palavu Centre</h2>
+            <p className="font-bold text-black" style={{ fontSize: '14px', fontFamily: 'monospace' }}>RajaMahendravaram Palavu Centre</p>
             <p className="text-xs text-gray-600">Order Receipt</p>
           </div>
 
