@@ -5,10 +5,11 @@ import { adminApi } from '../../api/adminApi'
 import { playNotificationSound, requestNotificationPermission, showBrowserNotification } from '../../shared/notifications'
 
 const WS_URL = (() => {
-  const base = API_BASE_URL.replace('/api', '')
-  // If API is relative (/api), use current origin
-  if (base === '' || base === '/') return window.location.origin
-  return base
+  const base = API_BASE_URL
+  // Remove /api suffix to get the server root
+  if (base.startsWith('http')) return base.replace(/\/api\/?$/, '')
+  // If relative, use current origin
+  return window.location.origin
 })()
 
 function formatCurrency(amount) {
