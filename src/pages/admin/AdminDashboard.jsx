@@ -1019,6 +1019,13 @@ export default function AdminDashboard() {
                   >
                     View Site
                   </a>
+                  <a
+                    href="/admin/kitchen"
+                    target="_blank"
+                    className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition hover:bg-amber-100"
+                  >
+                    🍳 Kitchen
+                  </a>
                   <ActionButton type="button" variant="danger" onClick={handleLogout} className="inline-flex items-center gap-2">
                     <LogOut className="h-4 w-4" />
                     Logout

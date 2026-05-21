@@ -4,7 +4,12 @@ import { API_BASE_URL } from '../../shared/api/api-config'
 import { adminApi } from '../../api/adminApi'
 import { playNotificationSound, requestNotificationPermission, showBrowserNotification } from '../../shared/notifications'
 
-const WS_URL = API_BASE_URL.replace('/api', '').replace('http', 'ws').replace('/ws', '') || window.location.origin
+const WS_URL = (() => {
+  const base = API_BASE_URL.replace('/api', '')
+  // If API is relative (/api), use current origin
+  if (base === '' || base === '/') return window.location.origin
+  return base
+})()
 
 function formatCurrency(amount) {
   return `₹${Number(amount || 0).toFixed(2)}`
@@ -124,7 +129,7 @@ export default function KitchenDisplay() {
   const [orders, setOrders] = useState([])
   const [connected, setConnected] = useState(false)
   const [printOrder, setPrintOrder] = useState(null)
-  const [autoPrint, setAutoPrint] = useState(false)
+  const [printQueue, setPrintQueue] = useState([])
   const socketRef = useRef(null)
   const audioUnlocked = useRef(false)
 
@@ -150,8 +155,7 @@ export default function KitchenDisplay() {
     fetchOrders()
 
     // Connect WebSocket
-    const wsUrl = API_BASE_URL.replace('/api', '')
-    const socket = io(wsUrl, { path: '/ws/', transports: ['websocket', 'polling'] })
+    const socket = io(WS_URL, { path: '/ws/', transports: ['websocket', 'polling'], withCredentials: true })
 
     socket.on('connect', () => {
       setConnected(true)
@@ -165,8 +169,15 @@ export default function KitchenDisplay() {
       playNotificationSound()
       showBrowserNotification('🛒 New Order!', `Order ${data?.orderNumber || ''} received`)
 
-      // Refresh orders
-      fetchOrders()
+      // Refresh orders then auto-print newest
+      adminApi.getOrders({ page: 1, limit: 20 }).then((res) => {
+        const items = res.data?.items || []
+        setOrders(items)
+        // Auto-print the newest order immediately
+        if (items.length > 0 && items[0].orderStatus === 'pending') {
+          setPrintOrder(items[0])
+        }
+      }).catch(() => fetchOrders())
     })
 
     socket.on('order-updated', () => {
@@ -180,17 +191,13 @@ export default function KitchenDisplay() {
     }
   }, [])
 
-  // Auto-print new orders
+  // Process print queue one by one
   useEffect(() => {
-    if (autoPrint && orders.length > 0) {
-      const newest = orders[0]
-      const orderAge = Date.now() - new Date(newest.createdAt).getTime()
-      // Only auto-print if order is less than 30 seconds old
-      if (orderAge < 30000 && newest.orderStatus === 'pending') {
-        setPrintOrder(newest)
-      }
+    if (!printOrder && printQueue.length > 0) {
+      setPrintOrder(printQueue[0])
+      setPrintQueue((q) => q.slice(1))
     }
-  }, [orders, autoPrint])
+  }, [printOrder, printQueue])
 
   return (
     <div className="min-h-screen bg-gray-900 text-white" onClick={unlockAudio}>
@@ -204,10 +211,6 @@ export default function KitchenDisplay() {
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={autoPrint} onChange={(e) => setAutoPrint(e.target.checked)} className="w-4 h-4 accent-amber-500" />
-              Auto-Print
-            </label>
             <button onClick={fetchOrders} className="px-3 py-1.5 bg-gray-700 rounded-lg text-sm hover:bg-gray-600">Refresh</button>
             <button onClick={() => playNotificationSound()} className="px-3 py-1.5 bg-amber-600 rounded-lg text-sm hover:bg-amber-500">Test Sound</button>
           </div>
