@@ -183,26 +183,26 @@ export default function KitchenDisplay() {
   }, [printOrder, printQueue])
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white" onClick={unlockAudio}>
+    <div className="min-h-screen bg-[#f6f8fb] text-slate-900" onClick={unlockAudio}>
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-gray-800 border-b border-gray-700 px-4 py-3">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+      <div className="sticky top-0 z-50 bg-white border-b border-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] px-4 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-amber-400">🍳 Kitchen Display</h1>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+            <h1 className="text-[22px] font-semibold text-slate-950">Kitchen Display</h1>
+            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${connected ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
               {connected ? '● Live' : '● Offline'}
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={fetchOrders} className="px-3 py-1.5 bg-gray-700 rounded-lg text-sm hover:bg-gray-600">Refresh</button>
-            <button onClick={() => playNotificationSound()} className="px-3 py-1.5 bg-amber-600 rounded-lg text-sm hover:bg-amber-500">Test Sound</button>
+            <button onClick={fetchOrders} className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Refresh</button>
+            <button onClick={() => playNotificationSound()} className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800">Test Sound</button>
           </div>
         </div>
       </div>
 
       {/* Orders Grid */}
-      <div className="max-w-6xl mx-auto p-4">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="max-w-7xl mx-auto p-5">
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {orders.map((order) => {
             const isPending = order.orderStatus === 'pending'
             const isNew = Date.now() - new Date(order.createdAt).getTime() < 300000 // 5 min
@@ -210,56 +210,56 @@ export default function KitchenDisplay() {
             return (
               <div
                 key={order.id}
-                className={`rounded-xl border p-4 transition ${
+                className={`rounded-[18px] border bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition ${
                   isPending && isNew
-                    ? 'border-amber-500 bg-amber-500/10 animate-pulse'
+                    ? 'border-amber-300 shadow-[0_4px_16px_rgba(245,158,11,0.12)]'
                     : isPending
-                    ? 'border-amber-500/50 bg-gray-800'
-                    : 'border-gray-700 bg-gray-800'
+                    ? 'border-amber-200'
+                    : 'border-slate-200'
                 }`}
               >
                 {/* Order Header */}
                 <div className="flex justify-between items-start mb-3">
                   <div>
-                    <p className="text-amber-400 font-mono text-sm font-bold">{order.orderNumber}</p>
-                    <p className="text-gray-400 text-xs mt-0.5">{formatTime(order.createdAt)}</p>
+                    <p className="text-blue-700 font-mono text-sm font-bold">{order.orderNumber}</p>
+                    <p className="text-slate-500 text-xs mt-0.5">{formatTime(order.createdAt)}</p>
                   </div>
                   <div className="flex gap-1.5">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      order.orderStatus === 'pending' ? 'bg-amber-500/20 text-amber-400' :
-                      order.orderStatus === 'preparing' ? 'bg-blue-500/20 text-blue-400' :
-                      order.orderStatus === 'ready' ? 'bg-green-500/20 text-green-400' :
-                      'bg-gray-500/20 text-gray-400'
+                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase ${
+                      order.orderStatus === 'pending' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                      order.orderStatus === 'preparing' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                      order.orderStatus === 'ready' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                      'bg-slate-50 text-slate-600 border border-slate-200'
                     }`}>{order.orderStatus}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      order.paymentStatus === 'paid' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase ${
+                      order.paymentStatus === 'paid' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
                     }`}>{order.paymentStatus}</span>
                   </div>
                 </div>
 
                 {/* Customer */}
-                <div className="mb-3 text-sm">
-                  <p className="font-semibold text-white">{order.customer?.name}</p>
-                  <p className="text-gray-400 text-xs">{order.customer?.phone}</p>
-                  {order.storeLocation && <p className="text-amber-400/70 text-xs capitalize mt-0.5">📍 {order.storeLocation}</p>}
+                <div className="mb-3">
+                  <p className="font-semibold text-slate-900">{order.customer?.name}</p>
+                  <p className="text-slate-500 text-xs">{order.customer?.phone}</p>
+                  {order.storeLocation && <p className="text-amber-600 text-xs capitalize mt-0.5">📍 {order.storeLocation}</p>}
                 </div>
 
                 {/* Items */}
-                <div className="border-t border-gray-700 pt-2 mb-3">
+                <div className="border-t border-slate-100 pt-2 mb-3">
                   {(order.items || []).map((item, i) => (
                     <div key={i} className="flex justify-between text-sm py-0.5">
-                      <span className="text-gray-300">{item.quantity}x {item.name}</span>
-                      <span className="text-gray-400">{formatCurrency(item.total)}</span>
+                      <span className="text-slate-700">{item.quantity}x {item.name}</span>
+                      <span className="text-slate-500">{formatCurrency(item.total)}</span>
                     </div>
                   ))}
                 </div>
 
                 {/* Total + Print */}
-                <div className="flex justify-between items-center border-t border-gray-700 pt-2">
-                  <span className="text-lg font-bold text-amber-400">{formatCurrency(order.pricing?.grandTotal)}</span>
+                <div className="flex justify-between items-center border-t border-slate-100 pt-3">
+                  <span className="text-[20px] font-bold text-slate-900">{formatCurrency(order.pricing?.grandTotal)}</span>
                   <button
                     onClick={() => setPrintOrder(order)}
-                    className="px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-xs font-medium hover:bg-white/20 transition"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                   >
                     🖨️ Print Bill
                   </button>
@@ -269,10 +269,10 @@ export default function KitchenDisplay() {
           })}
 
           {orders.length === 0 && (
-            <div className="col-span-full text-center py-20 text-gray-500">
+            <div className="col-span-full rounded-[18px] border border-slate-200 bg-white p-12 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <p className="text-4xl mb-4">🍽️</p>
-              <p className="text-lg">No orders yet</p>
-              <p className="text-sm mt-1">New orders will appear here with sound alerts</p>
+              <p className="text-lg font-semibold text-slate-900">No orders yet</p>
+              <p className="text-sm mt-1 text-slate-500">New orders will appear here with sound alerts</p>
             </div>
           )}
         </div>
