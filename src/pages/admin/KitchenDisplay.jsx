@@ -23,21 +23,23 @@ function formatTime(dateStr) {
 function BillPrint({ order, onClose }) {
   const printRef = useRef(null)
 
-  useEffect(() => {
-    // Auto-print after render
-    const timer = setTimeout(() => {
-      window.print()
-    }, 500)
-    return () => clearTimeout(timer)
-  }, [])
-
   if (!order) return null
+
+  const customerName = order.customer?.name || order.customerName || 'Guest'
+  const customerPhone = order.customer?.phone || order.phone || ''
+  const items = order.items || []
+  const pricing = order.pricing || {}
+  const orderNumber = order.orderNumber || ''
+  const storeLocation = order.storeLocation || ''
+  const paymentMethod = order.paymentMethod || 'cod'
+  const paymentStatus = order.paymentStatus || 'unpaid'
+  const createdAt = order.createdAt || new Date().toISOString()
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-[400px] w-full max-h-[90vh] overflow-y-auto">
         <div className="p-4 border-b flex justify-between items-center no-print">
-          <h3 className="font-bold text-lg">Print Bill</h3>
+          <h3 className="font-bold text-lg text-red-600">Print Bill</h3>
           <div className="flex gap-2">
             <button onClick={() => window.print()} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium">Print</button>
             <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium">Close</button>
@@ -45,57 +47,39 @@ function BillPrint({ order, onClose }) {
         </div>
 
         {/* Printable Bill */}
-        <div ref={printRef} className="p-6 print-bill" style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+        <div ref={printRef} className="p-6 print-bill" style={{ fontFamily: 'monospace', fontSize: '12px', color: '#000' }}>
           <div className="text-center mb-4">
-            <h2 className="text-lg font-bold">RajaMahendravaram Palavu Centre</h2>
+            <h2 className="text-base font-bold text-black">RajaMahendravaram Palavu Centre</h2>
             <p className="text-xs text-gray-600">Order Receipt</p>
           </div>
 
           <div className="border-t border-dashed border-gray-400 my-2" />
 
-          <div className="flex justify-between text-xs mb-1">
-            <span>Order #:</span>
-            <span className="font-bold">{order.orderNumber}</span>
-          </div>
-          <div className="flex justify-between text-xs mb-1">
-            <span>Date:</span>
-            <span>{new Date(order.createdAt).toLocaleDateString('en-IN')} {formatTime(order.createdAt)}</span>
-          </div>
-          <div className="flex justify-between text-xs mb-1">
-            <span>Customer:</span>
-            <span>{order.customer?.name}</span>
-          </div>
-          <div className="flex justify-between text-xs mb-1">
-            <span>Phone:</span>
-            <span>{order.customer?.phone}</span>
-          </div>
-          {order.storeLocation && (
-            <div className="flex justify-between text-xs mb-1">
-              <span>Branch:</span>
-              <span className="capitalize">{order.storeLocation}</span>
-            </div>
-          )}
-          <div className="flex justify-between text-xs mb-1">
-            <span>Payment:</span>
-            <span className="capitalize">{order.paymentMethod} ({order.paymentStatus})</span>
+          <div className="space-y-1 text-xs text-black">
+            <div className="flex justify-between"><span>Order #:</span><span className="font-bold">{orderNumber}</span></div>
+            <div className="flex justify-between"><span>Date:</span><span>{new Date(createdAt).toLocaleDateString('en-IN')} {formatTime(createdAt)}</span></div>
+            <div className="flex justify-between"><span>Customer:</span><span>{customerName}</span></div>
+            <div className="flex justify-between"><span>Phone:</span><span>{customerPhone}</span></div>
+            {storeLocation && <div className="flex justify-between"><span>Branch:</span><span className="capitalize">{storeLocation}</span></div>}
+            <div className="flex justify-between"><span>Payment:</span><span className="capitalize">{paymentMethod} ({paymentStatus})</span></div>
           </div>
 
           <div className="border-t border-dashed border-gray-400 my-3" />
 
-          <table className="w-full text-xs">
+          <table className="w-full text-xs text-black">
             <thead>
               <tr className="border-b border-gray-300">
                 <th className="text-left py-1">Item</th>
                 <th className="text-center py-1">Qty</th>
-                <th className="text-right py-1">Amount</th>
+                <th className="text-right py-1">Amt</th>
               </tr>
             </thead>
             <tbody>
-              {(order.items || []).map((item, i) => (
+              {items.map((item, i) => (
                 <tr key={i} className="border-b border-gray-100">
-                  <td className="py-1">{item.name}</td>
+                  <td className="py-1">{item.name || item.itemName}</td>
                   <td className="text-center py-1">{item.quantity}</td>
-                  <td className="text-right py-1">{formatCurrency(item.total || item.unitPrice * item.quantity)}</td>
+                  <td className="text-right py-1">{formatCurrency(item.total || item.unitPrice * item.quantity || 0)}</td>
                 </tr>
               ))}
             </tbody>
@@ -103,14 +87,12 @@ function BillPrint({ order, onClose }) {
 
           <div className="border-t border-dashed border-gray-400 my-3" />
 
-          <div className="text-xs space-y-1">
-            <div className="flex justify-between"><span>Subtotal:</span><span>{formatCurrency(order.pricing?.subTotal)}</span></div>
-            {order.pricing?.discountAmount > 0 && (
-              <div className="flex justify-between"><span>Discount:</span><span>-{formatCurrency(order.pricing.discountAmount)}</span></div>
-            )}
-            <div className="flex justify-between"><span>Tax:</span><span>{formatCurrency(order.pricing?.taxAmount)}</span></div>
+          <div className="text-xs space-y-1 text-black">
+            <div className="flex justify-between"><span>Subtotal:</span><span>{formatCurrency(pricing.subTotal || 0)}</span></div>
+            {pricing.discountAmount > 0 && <div className="flex justify-between"><span>Discount:</span><span>-{formatCurrency(pricing.discountAmount)}</span></div>}
+            <div className="flex justify-between"><span>Tax:</span><span>{formatCurrency(pricing.taxAmount || 0)}</span></div>
             <div className="flex justify-between font-bold text-sm border-t border-gray-300 pt-1 mt-1">
-              <span>TOTAL:</span><span>{formatCurrency(order.pricing?.grandTotal)}</span>
+              <span>TOTAL:</span><span>{formatCurrency(pricing.grandTotal || 0)}</span>
             </div>
           </div>
 
