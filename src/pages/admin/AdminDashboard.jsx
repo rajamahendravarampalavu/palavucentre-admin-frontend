@@ -143,6 +143,10 @@ export default function AdminDashboard() {
   const [orderSearch, setOrderSearch] = useState('')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
   const [orderPaymentFilter, setOrderPaymentFilter] = useState('all')
+  const [orderDateFilter, setOrderDateFilter] = useState('all')
+  const [orderBranchFilter, setOrderBranchFilter] = useState('all')
+  const [orderPage, setOrderPage] = useState(1)
+  const ORDERS_PER_PAGE = 10
   const [expandedOrderId, setExpandedOrderId] = useState(null)
   const activeSectionKey = activeTab === 'ordering' ? 'settings' : activeTab
 
@@ -253,11 +257,21 @@ export default function AdminDashboard() {
 
   const filteredOrders = useMemo(() => {
     const query = orderSearch.trim().toLowerCase()
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay())
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
     return [...orders]
       .filter((order) => {
       const matchesStatus = orderStatusFilter === 'all' || order.orderStatus === orderStatusFilter
       const matchesPayment = orderPaymentFilter === 'all' || order.paymentStatus === orderPaymentFilter
+      const matchesBranch = orderBranchFilter === 'all' || (order.storeLocation || '') === orderBranchFilter
+      const orderDate = new Date(order.createdAt)
+      const matchesDate = orderDateFilter === 'all' ||
+        (orderDateFilter === 'today' && orderDate >= startOfToday) ||
+        (orderDateFilter === 'week' && orderDate >= startOfWeek) ||
+        (orderDateFilter === 'month' && orderDate >= startOfMonth)
       const matchesQuery =
         !query ||
         order.orderNumber.toLowerCase().includes(query) ||
@@ -266,10 +280,13 @@ export default function AdminDashboard() {
         (order.account?.email || '').toLowerCase().includes(query) ||
         (order.promo?.code || '').toLowerCase().includes(query)
 
-        return matchesStatus && matchesPayment && matchesQuery
+        return matchesStatus && matchesPayment && matchesBranch && matchesDate && matchesQuery
       })
       .sort((firstOrder, secondOrder) => new Date(secondOrder.createdAt) - new Date(firstOrder.createdAt))
-  }, [orderPaymentFilter, orderSearch, orderStatusFilter, orders])
+  }, [orderPaymentFilter, orderSearch, orderStatusFilter, orderDateFilter, orderBranchFilter, orders])
+
+  const totalOrderPages = Math.ceil(filteredOrders.length / ORDERS_PER_PAGE) || 1
+  const paginatedOrders = filteredOrders.slice((orderPage - 1) * ORDERS_PER_PAGE, orderPage * ORDERS_PER_PAGE)
 
   const fetchDashboard = async () => {
     const response = await adminApi.getDashboard()
@@ -1672,6 +1689,19 @@ export default function AdminDashboard() {
                     ))}
                   </SelectInput>
 
+                  <SelectInput value={orderDateFilter} onChange={(event) => { setOrderDateFilter(event.target.value); setOrderPage(1) }} className="bg-slate-50">
+                    <option value="all">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                  </SelectInput>
+
+                  <SelectInput value={orderBranchFilter} onChange={(event) => { setOrderBranchFilter(event.target.value); setOrderPage(1) }} className="bg-slate-50">
+                    <option value="all">All Branches</option>
+                    <option value="kukatpally">Kukatpally</option>
+                    <option value="bachupally">Bachupally</option>
+                  </SelectInput>
+
                   <ActionButton
                     type="button"
                     variant="secondary"
@@ -1679,6 +1709,9 @@ export default function AdminDashboard() {
                       setOrderSearch('')
                       setOrderStatusFilter('all')
                       setOrderPaymentFilter('all')
+                      setOrderDateFilter('all')
+                      setOrderBranchFilter('all')
+                      setOrderPage(1)
                       setExpandedOrderId(null)
                     }}
                   >
@@ -1688,8 +1721,8 @@ export default function AdminDashboard() {
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
                   <p className="text-sm text-slate-600">
-                    Showing <span className="font-semibold text-slate-900">{filteredOrders.length}</span> of{' '}
-                    <span className="font-semibold text-slate-900">{orders.length}</span> orders
+                    Showing <span className="font-semibold text-slate-900">{paginatedOrders.length}</span> of{' '}
+                    <span className="font-semibold text-slate-900">{filteredOrders.length}</span> orders (Page {orderPage}/{totalOrderPages})
                   </p>
                   <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
@@ -1706,21 +1739,36 @@ export default function AdminDashboard() {
               </div>
 
               <OrdersList
-                filteredOrders={filteredOrders}
+                filteredOrders={paginatedOrders}
                 expandedOrderId={expandedOrderId}
                 setExpandedOrderId={setExpandedOrderId}
                 busyKey={busyKey}
                 updateOrderField={updateOrderField}
               />
+              {totalOrderPages > 1 && (
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  <button type="button" onClick={() => setOrderPage((p) => Math.max(1, p - 1))} disabled={orderPage === 1}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-40 hover:bg-slate-50">← Prev</button>
+                  {Array.from({ length: Math.min(totalOrderPages, 7) }, (_, i) => {
+                    const page = totalOrderPages <= 7 ? i + 1 : orderPage <= 4 ? i + 1 : orderPage >= totalOrderPages - 3 ? totalOrderPages - 6 + i : orderPage - 3 + i
+                    return (
+                      <button key={page} type="button" onClick={() => setOrderPage(page)}
+                        className={`rounded-lg px-3 py-2 text-sm font-medium transition ${orderPage === page ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{page}</button>
+                    )
+                  })}
+                  <button type="button" onClick={() => setOrderPage((p) => Math.min(totalOrderPages, p + 1))} disabled={orderPage === totalOrderPages}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-40 hover:bg-slate-50">Next →</button>
+                </div>
+              )}
               {canLoadMoreSection('orders') && (
-                <div className="mt-4">
+                <div className="mt-4 text-center">
                   <ActionButton
                     type="button"
                     variant="secondary"
                     onClick={() => loadMoreSection('orders')}
                     disabled={sectionLoading.orders}
                   >
-                    {sectionLoading.orders ? 'Loading...' : 'Load More Orders'}
+                    {sectionLoading.orders ? 'Loading...' : 'Load More From Server'}
                   </ActionButton>
                 </div>
               )}
