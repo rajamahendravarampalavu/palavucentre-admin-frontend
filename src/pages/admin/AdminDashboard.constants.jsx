@@ -1,7 +1,6 @@
 import {
   Activity,
   BadgePercent,
-  Banknote,
   BarChart3,
   Building2,
   ClipboardList,

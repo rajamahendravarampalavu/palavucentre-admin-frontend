@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import {
   BadgePercent,
   ChevronDown,
@@ -105,8 +105,51 @@ function SectionSkeleton({ cards = 3 }) {
   )
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function MiniBarChart({ items = [], valueKey = 'value', formatter = (value) => value }) {
+  const maxValue = Math.max(...items.map((item) => Number(item[valueKey] || 0)), 1)
+
+  return (
+    <div className="flex h-40 items-end gap-2">
+      {items.map((item) => {
+        const value = Number(item[valueKey] || 0)
+        return (
+          <div key={`${item.label}-${item.date || ''}`} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+            <div className="flex h-28 w-full items-end rounded-lg bg-slate-100 px-1">
+              <div
+                className="w-full rounded-md bg-blue-600"
+                style={{ height: `${Math.max(8, (value / maxValue) * 100)}%` }}
+                title={`${item.label}: ${formatter(value)}`}
+              />
+            </div>
+            <span className="text-[10px] font-medium text-slate-500">{item.label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function EmptyPanel({ title, description }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center">
+      <p className="text-sm font-semibold text-slate-900">{title}</p>
+      {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+    </div>
+  )
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate()
+  const confirmResolverRef = useRef(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [admin, setAdmin] = useState(null)
   const [dashboard, setDashboard] = useState(null)
@@ -166,6 +209,7 @@ export default function AdminDashboard() {
   const [expandedOrderId, setExpandedOrderId] = useState(null)
   const [printJobs, setPrintJobs] = useState([])
   const [printSettings, setPrintSettings] = useState(null)
+  const [printStationStatus, setPrintStationStatus] = useState([])
   const [customerSearch, setCustomerSearch] = useState('')
   const [paymentSearch, setPaymentSearch] = useState('')
   const [expenseForm, setExpenseForm] = useState({ category: '', amount: '', notes: '', date: toDateInputValue(new Date()) })
@@ -173,9 +217,9 @@ export default function AdminDashboard() {
   const [confirmDialog, setConfirmDialog] = useState(null)
   const operationalSections = new Set(['customers', 'payments', 'reports', 'inventory', 'branches', 'staff', 'activity', 'expenses'])
   const activeSectionKey =
-    activeTab === 'ordering' || activeTab === 'print-settings'
+    activeTab === 'ordering'
       ? 'settings'
-      : activeTab === 'orders-print'
+      : activeTab === 'orders-print' || activeTab === 'print-settings'
         ? 'print'
         : activeTab === 'categories'
           ? 'menu'
@@ -186,9 +230,18 @@ export default function AdminDashboard() {
   const showAdminAlert = (message) => {
     setError(message)
     setNotice('')
-    if (typeof window !== 'undefined') {
-      window.alert(message)
-    }
+  }
+
+  const requestConfirmation = ({ title = 'Confirm action', message, actionLabel = 'Confirm', danger = true }) =>
+    new Promise((resolve) => {
+      confirmResolverRef.current = resolve
+      setConfirmDialog({ title, message, actionLabel, danger })
+    })
+
+  const resolveConfirmation = (confirmed) => {
+    confirmResolverRef.current?.(confirmed)
+    confirmResolverRef.current = null
+    setConfirmDialog(null)
   }
 
   const validateAdminForm = (form, message) => {
@@ -395,14 +448,6 @@ export default function AdminDashboard() {
   const totalOrderPages = Math.ceil(filteredOrders.length / ORDERS_PER_PAGE) || 1
   const paginatedOrders = filteredOrders.slice((orderPage - 1) * ORDERS_PER_PAGE, orderPage * ORDERS_PER_PAGE)
 
-  const allInquiryItems = useMemo(
-    () =>
-      Object.entries(inquiries || {}).flatMap(([type, payload]) =>
-        (payload?.items || []).map((item) => ({ ...item, type })),
-      ),
-    [inquiries],
-  )
-
   const customerRows = useMemo(() => {
     const customerMap = new Map()
 
@@ -605,6 +650,7 @@ export default function AdminDashboard() {
     ])
 
     setPrintJobs(jobsResponse.data?.items || [])
+    setPrintStationStatus(jobsResponse.data?.stationStatus || [])
     setPrintSettings(settingsResponse.data || null)
   }
 
@@ -705,6 +751,12 @@ export default function AdminDashboard() {
     loadSectionEvent(activeSectionKey, { silent: true })
   }, [activeSectionKey, admin])
 
+  useEffect(() => {
+    if (activeTab === 'categories') {
+      setMenuSubTab('categories')
+    }
+  }, [activeTab])
+
   const refreshActiveSection = () => loadSection(activeSectionKey, { force: true })
 
   const canLoadMoreSection = (sectionKey) =>
@@ -742,6 +794,13 @@ export default function AdminDashboard() {
   const resetReviewForm = () => setReviewForm(initialReviewForm)
   const resetOfferForm = () => setOfferForm(initialOfferForm)
   const resetPromoCodeForm = () => setPromoCodeForm(initialPromoCodeForm)
+
+  const parseMenuTags = (value) =>
+    String(value || '')
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 8)
 
   const addMenuVariant = (label = '') => {
     setMenuItemForm((current) => ({
@@ -821,6 +880,8 @@ export default function AdminDashboard() {
       ...initialMenuItemForm,
       categoryId: String(category.id),
       isVeg: current.isVeg,
+      dietaryType: current.dietaryType || (current.isVeg ? 'veg' : 'non_veg'),
+      spiceLevel: current.spiceLevel || 'medium',
       isAvailable: true,
     }))
   }
@@ -938,7 +999,13 @@ export default function AdminDashboard() {
         imageMimeType: emptyToUndefined(menuItemForm.imageMimeType),
         price: Number(menuItemForm.price),
         variants,
-        isVeg: menuItemForm.isVeg,
+        dietaryType: menuItemForm.dietaryType,
+        preparationTimeMinutes: menuItemForm.preparationTimeMinutes
+          ? Number(menuItemForm.preparationTimeMinutes)
+          : undefined,
+        spiceLevel: emptyToUndefined(menuItemForm.spiceLevel),
+        tags: Array.isArray(menuItemForm.tags) ? menuItemForm.tags : [],
+        isVeg: menuItemForm.dietaryType === 'veg' || menuItemForm.isVeg,
         isBestseller: menuItemForm.isBestseller,
         isAvailable: menuItemForm.isAvailable,
         sortOrder: Number(menuItemForm.sortOrder || 0),
@@ -954,7 +1021,10 @@ export default function AdminDashboard() {
         setMenuItemForm({
           ...initialMenuItemForm,
           categoryId: menuItemForm.categoryId,
-          isVeg: menuItemForm.isVeg,
+          dietaryType: menuItemForm.dietaryType,
+          spiceLevel: menuItemForm.spiceLevel,
+          tags: menuItemForm.tags,
+          isVeg: menuItemForm.dietaryType === 'veg' || menuItemForm.isVeg,
           isAvailable: true,
           sortOrder: String(Number(menuItemForm.sortOrder || 0) + 1),
         })
@@ -1196,7 +1266,14 @@ export default function AdminDashboard() {
   }
 
   const deleteWithRefresh = async ({ id, key, action, successMessage, refreshers, confirmation }) => {
-    if (!window.confirm(confirmation)) {
+    const confirmed = await requestConfirmation({
+      title: 'Delete item',
+      message: confirmation,
+      actionLabel: 'Delete',
+      danger: true,
+    })
+
+    if (!confirmed) {
       return
     }
 
@@ -1215,6 +1292,19 @@ export default function AdminDashboard() {
   }
 
   const updateOrderField = async (id, payload) => {
+    if (payload.orderStatus === 'cancelled') {
+      const confirmed = await requestConfirmation({
+        title: 'Cancel order',
+        message: 'Cancel this order? This action should only be used when the restaurant cannot fulfil it.',
+        actionLabel: 'Cancel Order',
+        danger: true,
+      })
+
+      if (!confirmed) {
+        return
+      }
+    }
+
     try {
       setBusyKey(`order-${id}`)
       setError('')
@@ -1242,6 +1332,277 @@ export default function AdminDashboard() {
     } finally {
       setBusyKey('')
     }
+  }
+
+  const duplicateMenuItem = (item) => {
+    setMenuItemForm({
+      ...initialMenuItemForm,
+      categoryId: String(item.category?.id || ''),
+      name: `${item.name} Copy`,
+      shortDescription: item.desc || '',
+      description: item.description || '',
+      imageUrl: item.imageMediumUrl || item.imageUrl || item.img || '',
+      imageThumbnailUrl: item.imageThumbnailUrl || '',
+      imageMediumUrl: item.imageMediumUrl || '',
+      imageLargeUrl: item.imageLargeUrl || '',
+      imageAlt: item.imageAlt || item.name,
+      imageSize: item.imageSize ? String(item.imageSize) : '',
+      imageMimeType: item.imageMimeType || '',
+      price: String(item.price),
+      variants: item.variants || [],
+      dietaryType: item.dietaryType || (item.veg ? 'veg' : 'non_veg'),
+      preparationTimeMinutes: item.preparationTimeMinutes ? String(item.preparationTimeMinutes) : '',
+      spiceLevel: item.spiceLevel || 'medium',
+      tags: item.tags || [],
+      isVeg: item.veg,
+      isBestseller: item.bestseller,
+      isAvailable: item.available,
+      sortOrder: String(Number(item.sortOrder || 0) + 1),
+    })
+    setNotice('Dish copied into the form. Review the name and save to create it.')
+  }
+
+  const selectedMenuItems = menuItems.filter((item) => selectedMenuIds.includes(item.id))
+
+  const applyBulkMenuPatch = async (payload, successMessage) => {
+    if (selectedMenuIds.length === 0) {
+      showAdminAlert('Select at least one dish first.')
+      return
+    }
+
+    const confirmed = await requestConfirmation({
+      title: 'Bulk update dishes',
+      message: `Update ${selectedMenuIds.length} selected dish${selectedMenuIds.length === 1 ? '' : 'es'}?`,
+      actionLabel: 'Update',
+      danger: false,
+    })
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setBusyKey('menu-bulk')
+      setError('')
+      setNotice('')
+      await Promise.all(selectedMenuIds.map((id) => adminApi.updateMenuItem(id, payload)))
+      setNotice(successMessage)
+      setSelectedMenuIds([])
+      await Promise.all([fetchMenuData(), fetchDashboard()])
+    } catch (requestError) {
+      setError(requestError.message || 'Bulk update failed')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const applyBulkPriceUpdate = async () => {
+    const delta = Number(bulkPriceDelta || 0)
+
+    if (!Number.isFinite(delta) || delta === 0) {
+      showAdminAlert('Enter a valid price change amount.')
+      return
+    }
+
+    if (selectedMenuItems.length === 0) {
+      showAdminAlert('Select at least one dish first.')
+      return
+    }
+
+    const confirmed = await requestConfirmation({
+      title: 'Bulk price update',
+      message: `Apply ${delta > 0 ? '+' : ''}${delta} INR to ${selectedMenuItems.length} selected dish prices?`,
+      actionLabel: 'Update Prices',
+      danger: delta < 0,
+    })
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setBusyKey('menu-bulk')
+      setError('')
+      setNotice('')
+      await Promise.all(
+        selectedMenuItems.map((item) =>
+          adminApi.updateMenuItem(item.id, {
+            price: Math.max(1, Number(item.price || 0) + delta),
+          }),
+        ),
+      )
+      setNotice('Bulk price update applied')
+      setBulkPriceDelta('')
+      setSelectedMenuIds([])
+      await Promise.all([fetchMenuData(), fetchDashboard()])
+    } catch (requestError) {
+      setError(requestError.message || 'Bulk price update failed')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const bulkDeleteMenuItems = async () => {
+    if (selectedMenuIds.length === 0) {
+      showAdminAlert('Select at least one dish first.')
+      return
+    }
+
+    const confirmed = await requestConfirmation({
+      title: 'Bulk delete dishes',
+      message: `Delete ${selectedMenuIds.length} selected dish${selectedMenuIds.length === 1 ? '' : 'es'}? This cannot be undone.`,
+      actionLabel: 'Delete',
+      danger: true,
+    })
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setBusyKey('menu-bulk')
+      setError('')
+      setNotice('')
+      await Promise.all(selectedMenuIds.map((id) => adminApi.deleteMenuItem(id)))
+      setNotice('Selected dishes deleted')
+      setSelectedMenuIds([])
+      await Promise.all([fetchMenuData(), fetchDashboard()])
+    } catch (requestError) {
+      setError(requestError.message || 'Bulk delete failed')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const handlePrintOrder = (order, mode = 'print') => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const printWindow = window.open('', '_blank', 'width=420,height=720')
+    if (!printWindow) {
+      showAdminAlert('Popup blocked. Allow popups or open Orders & Print.')
+      return
+    }
+
+    const itemRows = (order.items || [])
+      .map(
+        (item) => `
+          <tr>
+            <td>${escapeHtml(item.name)}</td>
+            <td class="center">${item.quantity}</td>
+            <td class="right">${formatCurrency(item.unitPrice)}</td>
+            <td class="right">${formatCurrency(item.total)}</td>
+          </tr>
+        `,
+      )
+      .join('')
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${escapeHtml(order.orderNumber)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 12px; color: #111; }
+            .bill { width: 80mm; max-width: 100%; margin: 0 auto; }
+            h1 { font-size: 18px; margin: 0 0 6px; text-align: center; }
+            p { margin: 3px 0; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+            th, td { border-bottom: 1px dashed #999; padding: 6px 2px; vertical-align: top; text-align: left; }
+            .center { text-align: center; }
+            .right { text-align: right; }
+            .total { font-size: 16px; font-weight: 700; }
+            @media print { @page { size: 80mm auto; margin: 4mm; } body { padding: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="bill">
+            <h1>${escapeHtml(settings?.restaurantName || 'PalavuCentre')}</h1>
+            <p><strong>Order:</strong> ${escapeHtml(order.orderNumber)}</p>
+            <p><strong>Date:</strong> ${formatDateTime(order.createdAt)}</p>
+            <p><strong>Customer:</strong> ${escapeHtml(order.customer?.name || 'Guest')}</p>
+            <p><strong>Phone:</strong> ${escapeHtml(order.customer?.phone || '-')}</p>
+            <p><strong>Branch:</strong> ${toLabelCase(order.storeLocation || 'not selected')}</p>
+            <p><strong>Payment:</strong> ${toLabelCase(order.paymentMethod)} / ${toLabelCase(order.paymentStatus)}</p>
+            ${order.notes ? `<p><strong>Special Request:</strong> ${escapeHtml(order.notes)}</p>` : ''}
+            <table>
+              <thead><tr><th>Item</th><th class="center">Qty</th><th class="right">Rate</th><th class="right">Total</th></tr></thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+            <p class="right">Subtotal: ${formatCurrency(order.pricing?.subTotal)}</p>
+            <p class="right">Discount: ${formatCurrency(order.pricing?.discountAmount || 0)}</p>
+            <p class="right">Tax: ${formatCurrency(order.pricing?.taxAmount || 0)}</p>
+            <p class="right total">Grand Total: ${formatCurrency(order.pricing?.grandTotal)}</p>
+            <p style="text-align:center;margin-top:14px;">Thank you</p>
+          </div>
+          <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 300); };</script>
+        </body>
+      </html>
+    `)
+    printWindow.document.close()
+    setNotice(`${mode === 'reprint' ? 'Reprint' : 'Print'} opened for ${order.orderNumber}`)
+  }
+
+  const savePrintSettings = async (patch) => {
+    try {
+      setBusyKey('print-settings')
+      setError('')
+      setNotice('')
+      const response = await adminApi.updatePrintSettings({ ...(printSettings || {}), ...patch })
+      setPrintSettings(response.data)
+      setNotice('Print settings updated')
+      await fetchPrintData()
+    } catch (requestError) {
+      setError(requestError.message || 'Could not update print settings')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const exportCsv = (filename, rows) => {
+    if (!rows.length) {
+      showAdminAlert('No rows available to export.')
+      return
+    }
+
+    const headers = Object.keys(rows[0])
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((header) => `"${String(row[header] ?? '').replaceAll('"', '""')}"`)
+          .join(','),
+      ),
+    ].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const addExpense = (event) => {
+    event.preventDefault()
+
+    if (!expenseForm.category.trim() || !Number(expenseForm.amount)) {
+      showAdminAlert('Expense category and amount are required.')
+      return
+    }
+
+    setExpenses((current) => [
+      {
+        id: Date.now(),
+        category: expenseForm.category.trim(),
+        amount: Number(expenseForm.amount),
+        notes: expenseForm.notes.trim(),
+        date: expenseForm.date || toDateInputValue(new Date()),
+      },
+      ...current,
+    ])
+    setExpenseForm({ category: '', amount: '', notes: '', date: toDateInputValue(new Date()) })
+    setNotice('Expense added to this admin session')
   }
 
   const updateInquiryField = async (type, id, status) => {
@@ -1387,8 +1748,15 @@ export default function AdminDashboard() {
 
           <main className="px-0 py-6 pr-2">
             {error && (
-              <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-                {error}
+              <div className="mb-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
+                <span>{error}</span>
+                <button
+                  type="button"
+                  onClick={refreshActiveSection}
+                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                >
+                  Retry
+                </button>
               </div>
             )}
 
@@ -1425,25 +1793,28 @@ export default function AdminDashboard() {
               <div className="space-y-6">
           {activeTab === 'overview' && (
             <>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 {[
-                  { label: 'Total Orders', value: dashboard?.stats?.totalOrders || 0 },
-                  { label: 'Pending Orders', value: dashboard?.stats?.pendingOrders || 0 },
-                  { label: 'Today Orders', value: dashboard?.stats?.todayOrders || 0 },
-                  { label: 'New Inquiries', value: dashboard?.stats?.newInquiries || 0 },
-                  { label: 'Menu Items', value: dashboard?.stats?.totalMenuItems || 0 },
-                  { label: 'Active Offers', value: dashboard?.stats?.activeOffers || 0 },
-                  { label: 'Visible Reviews', value: dashboard?.stats?.visibleReviews || 0 },
-                  { label: 'Paid Revenue', value: formatCurrency(dashboard?.stats?.revenue || 0) },
+                  { label: 'Today Orders', value: dashboard?.stats?.todayOrders || 0, hint: 'Today' },
+                  { label: 'Pending Orders', value: dashboard?.stats?.pendingOrders || 0, hint: 'Needs action' },
+                  { label: 'Completed Orders', value: dashboard?.stats?.completedOrders || 0, hint: 'All time' },
+                  { label: 'Today Revenue', value: formatCurrency(dashboard?.stats?.todayRevenue || 0), hint: 'Paid today' },
+                  { label: 'Paid Revenue', value: formatCurrency(dashboard?.stats?.paidRevenue || dashboard?.stats?.revenue || 0), hint: 'All paid orders' },
+                  { label: 'Unpaid Amount', value: formatCurrency(dashboard?.stats?.unpaidAmount || 0), hint: 'Pending collection' },
+                  { label: 'Total Menu Items', value: dashboard?.stats?.totalMenuItems || 0, hint: 'Live catalog' },
+                  { label: 'New Inquiries', value: dashboard?.stats?.newInquiries || 0, hint: 'Needs reply' },
+                  { label: 'Active Offers', value: dashboard?.stats?.activeOffers || 0, hint: 'Running now' },
+                  { label: 'Visible Reviews', value: dashboard?.stats?.visibleReviews || 0, hint: 'Public reviews' },
                 ].map((stat) => (
-                  <div key={stat.label} className="rounded-[18px] border border-slate-200 bg-white p-5">
+                  <div key={stat.label} className="rounded-[18px] border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                     <p className="text-[11px] font-bold uppercase tracking-[2px] text-slate-500">{stat.label}</p>
                     <p className="mt-3 text-3xl font-black text-slate-900">{stat.value}</p>
+                    <p className="mt-2 text-xs text-slate-500">{stat.hint}</p>
                   </div>
                 ))}
               </div>
 
-              <div className="grid gap-6 xl:grid-cols-2">
+              <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
                 <SectionCard
                   title="Recent Orders"
                   description="Latest guest orders with current status, customer details, and billing totals."
@@ -1458,49 +1829,115 @@ export default function AdminDashboard() {
                               {order.customer?.name} | {order.customer?.phone}
                             </p>
                           </div>
-                          <div className="text-right text-sm">
-                            <p className="capitalize text-slate-900">{order.orderStatus}</p>
-                            <p className="text-slate-500">{formatCurrency(order.pricing?.grandTotal)}</p>
+                          <div className="flex flex-wrap justify-end gap-2 text-sm">
+                            <StatusBadge value={order.orderStatus} kind="order" />
+                            <StatusBadge value={order.paymentStatus} kind="payment" />
+                            <span className="font-semibold text-slate-900">{formatCurrency(order.pricing?.grandTotal)}</span>
                           </div>
                         </div>
-                        <p className="mt-3 text-xs text-slate-500">{formatDateTime(order.createdAt)}</p>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs text-slate-500">{formatDateTime(order.createdAt)}</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('orders')
+                              setExpandedOrderId(order.id)
+                            }}
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            View
+                          </button>
+                        </div>
                       </div>
                     ))}
                     {(!dashboard?.recentOrders || dashboard.recentOrders.length === 0) && (
-                      <p className="text-sm text-slate-600">No orders yet.</p>
+                      <EmptyPanel title="No recent orders" description="New customer orders will appear here." />
                     )}
                   </div>
                 </SectionCard>
 
-                <SectionCard
-                  title="Recent Inquiries"
-                  description="Most recent contact, catering, and franchise leads."
-                >
-                  <div className="space-y-4">
-                    {(dashboard?.recentInquiries || []).map((item) => (
-                      <div key={`${item.type}-${item.id}`} className="rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <p className="font-semibold capitalize text-slate-900">
-                              {item.type} | {item.name}
-                            </p>
-                            <p className="mt-1 text-sm text-slate-600">{item.phone}</p>
-                          </div>
-                          <p className="text-sm capitalize text-slate-900">{item.status}</p>
-                        </div>
-                        <p className="mt-3 text-xs text-slate-500">{formatDateTime(item.createdAt)}</p>
+                <SectionCard title="Quick Actions" description="Common admin workflows for counter and back-office staff.">
+                  <div className="grid gap-3">
+                    {[
+                      ['Add Dish', 'menu', () => setMenuSubTab('items')],
+                      ['View Pending Orders', 'orders', () => setOrderStatusFilter('pending')],
+                      ['Open Orders & Print', 'orders-print'],
+                      ['Add Offer', 'offers'],
+                      ['Create Promo Code', 'promocodes'],
+                      ['Upload Gallery Image', 'gallery'],
+                    ].map(([label, tab, before]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => {
+                          before?.()
+                          setActiveTab(tab)
+                        }}
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </SectionCard>
+              </div>
+
+              <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+                <SectionCard title="Business Snapshot" description="Today's operational mix by payment and collection state.">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[
+                      ['Revenue today', formatCurrency(dashboard?.businessSnapshot?.revenueToday || 0)],
+                      ['Orders today', dashboard?.businessSnapshot?.ordersToday || 0],
+                      ['COD orders', dashboard?.businessSnapshot?.codOrders || 0],
+                      ['Online paid orders', dashboard?.businessSnapshot?.onlinePaidOrders || 0],
+                      ['Unpaid orders', dashboard?.businessSnapshot?.unpaidOrders || 0],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[1.6px] text-slate-500">{label}</p>
+                        <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
                       </div>
                     ))}
-                    {(!dashboard?.recentInquiries || dashboard.recentInquiries.length === 0) && (
-                      <p className="text-sm text-slate-600">No inquiries yet.</p>
-                    )}
+                  </div>
+                </SectionCard>
+
+                <SectionCard title="Charts" description="Fast, lightweight summaries without loading a heavy chart library.">
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    <div>
+                      <p className="mb-3 text-sm font-semibold text-slate-900">Daily Revenue</p>
+                      <MiniBarChart items={dashboard?.charts?.dailyRevenue || []} formatter={(value) => formatCurrency(value)} />
+                    </div>
+                    <div>
+                      <p className="mb-3 text-sm font-semibold text-slate-900">Orders By Day</p>
+                      <MiniBarChart items={dashboard?.charts?.ordersByDay || []} />
+                    </div>
+                    <div className="xl:col-span-2">
+                      <p className="mb-3 text-sm font-semibold text-slate-900">Payment Status / Best Sellers</p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          {(dashboard?.charts?.paymentStatus || []).map((item) => (
+                            <div key={item.label} className="mb-2 flex items-center justify-between text-sm last:mb-0">
+                              <span className="text-slate-600">{toLabelCase(item.label)}</span>
+                              <span className="font-semibold text-slate-900">{item.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          {(dashboard?.charts?.bestSellingItems || []).map((item) => (
+                            <div key={item.label} className="mb-2 flex items-center justify-between gap-3 text-sm last:mb-0">
+                              <span className="truncate text-slate-600">{item.label}</span>
+                              <span className="font-semibold text-slate-900">{item.quantity}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </SectionCard>
               </div>
             </>
           )}
 
-          {activeTab === 'menu' && (
+          {(activeTab === 'menu' || activeTab === 'categories') && (
             <div className="grid gap-6">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {menuMetrics.map((metric) => (
@@ -1508,7 +1945,33 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="rounded-[18px] border border-slate-200 bg-white p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <div className="scrollbar-hide flex gap-2 overflow-x-auto">
+                  {[
+                    ['categories', 'Categories'],
+                    ['items', 'Menu Items'],
+                    ['bestsellers', 'Best Sellers'],
+                    ['missing-images', 'Missing Images'],
+                    ['bulk', 'Bulk Update'],
+                  ].map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setMenuSubTab(id)}
+                      className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                        menuSubTab === id
+                          ? 'bg-slate-900 text-white'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-6">
+              {menuSubTab === 'categories' && (
               <SectionCard title="Menu Categories" description="Create and organize menu groups.">
                 <form onSubmit={submitCategory} noValidate className="grid gap-4">
                   <Field label="Category Name">
@@ -1623,6 +2086,24 @@ export default function AdminDashboard() {
                             >
                               Add Dish
                             </QuickPillButton>
+                            <QuickPillButton
+                              active={category.isActive}
+                              disabled={busyKey === `category-active-${category.id}`}
+                              onClick={async () => {
+                                try {
+                                  setBusyKey(`category-active-${category.id}`)
+                                  await adminApi.updateMenuCategory(category.id, { isActive: !category.isActive })
+                                  setNotice(category.isActive ? 'Category marked inactive' : 'Category marked active')
+                                  await fetchMenuData()
+                                } catch (requestError) {
+                                  setError(requestError.message || 'Could not update category')
+                                } finally {
+                                  setBusyKey('')
+                                }
+                              }}
+                            >
+                              {category.isActive ? 'Active' : 'Inactive'}
+                            </QuickPillButton>
                             <button
                               type="button"
                               onClick={() =>
@@ -1662,7 +2143,9 @@ export default function AdminDashboard() {
                   })}
                 </div>
               </SectionCard>
+              )}
  
+              {menuSubTab !== 'categories' && (
               <SectionCard title="Menu Items" description="Manage dishes, pricing, availability, and images.">
                 <form onSubmit={submitMenuItem} noValidate className="grid gap-4">
                   <div className="grid gap-4 md:grid-cols-2">
@@ -1754,6 +2237,60 @@ export default function AdminDashboard() {
                     />
                   </Field>
 
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <Field label="Food Type">
+                      <SelectInput
+                        value={menuItemForm.dietaryType}
+                        onChange={(event) =>
+                          setMenuItemForm((current) => ({
+                            ...current,
+                            dietaryType: event.target.value,
+                            isVeg: event.target.value === 'veg',
+                          }))
+                        }
+                      >
+                        <option value="veg">Veg</option>
+                        <option value="non_veg">Non-Veg</option>
+                        <option value="egg">Egg</option>
+                        <option value="seafood">Seafood</option>
+                      </SelectInput>
+                    </Field>
+                    <Field label="Preparation Time">
+                      <TextInput
+                        type="number"
+                        min="1"
+                        max="180"
+                        value={menuItemForm.preparationTimeMinutes}
+                        onChange={(event) =>
+                          setMenuItemForm((current) => ({ ...current, preparationTimeMinutes: event.target.value }))
+                        }
+                        placeholder="25"
+                      />
+                    </Field>
+                    <Field label="Spice Level">
+                      <SelectInput
+                        value={menuItemForm.spiceLevel}
+                        onChange={(event) =>
+                          setMenuItemForm((current) => ({ ...current, spiceLevel: event.target.value }))
+                        }
+                      >
+                        <option value="none">None</option>
+                        <option value="mild">Mild</option>
+                        <option value="medium">Medium</option>
+                        <option value="hot">Hot</option>
+                      </SelectInput>
+                    </Field>
+                    <Field label="Tags" hint="Comma separated: Popular, New, Chef Special, Spicy, Family Pack">
+                      <TextInput
+                        value={(menuItemForm.tags || []).join(', ')}
+                        onChange={(event) =>
+                          setMenuItemForm((current) => ({ ...current, tags: parseMenuTags(event.target.value) }))
+                        }
+                        placeholder="Popular, Chef Special"
+                      />
+                    </Field>
+                  </div>
+
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -1835,10 +2372,14 @@ export default function AdminDashboard() {
                     </Field>
                     <div className="flex items-end">
                       <ToggleInput
-                        label="Vegetarian"
-                        checked={menuItemForm.isVeg}
+                        label="Veg"
+                        checked={menuItemForm.dietaryType === 'veg'}
                         onChange={(event) =>
-                          setMenuItemForm((current) => ({ ...current, isVeg: event.target.checked }))
+                          setMenuItemForm((current) => ({
+                            ...current,
+                            dietaryType: event.target.checked ? 'veg' : 'non_veg',
+                            isVeg: event.target.checked,
+                          }))
                         }
                       />
                     </div>
@@ -1893,6 +2434,13 @@ export default function AdminDashboard() {
                       onClick={() => {
                         setMenuSearch('')
                         setMenuCategoryFilter('all')
+                        setMenuDietFilter('all')
+                        setMenuAvailabilityFilter('all')
+                        setMenuBestsellerFilter('all')
+                        setMenuImageFilter('all')
+                        setMenuPriceMin('')
+                        setMenuPriceMax('')
+                        setMenuSortBy('sortOrder')
                       }}
                     >
                       Reset Filters
@@ -1913,13 +2461,174 @@ export default function AdminDashboard() {
                       </QuickPillButton>
                     ))}
                   </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <SelectInput value={menuDietFilter} onChange={(event) => setMenuDietFilter(event.target.value)}>
+                      <option value="all">All Food Types</option>
+                      <option value="veg">Veg</option>
+                      <option value="non_veg">Non-Veg</option>
+                      <option value="egg">Egg</option>
+                      <option value="seafood">Seafood</option>
+                    </SelectInput>
+                    <SelectInput
+                      value={menuAvailabilityFilter}
+                      onChange={(event) => setMenuAvailabilityFilter(event.target.value)}
+                    >
+                      <option value="all">All Availability</option>
+                      <option value="available">Available</option>
+                      <option value="unavailable">Unavailable</option>
+                    </SelectInput>
+                    <SelectInput
+                      value={menuBestsellerFilter}
+                      onChange={(event) => setMenuBestsellerFilter(event.target.value)}
+                    >
+                      <option value="all">All Bestseller States</option>
+                      <option value="bestseller">Bestseller</option>
+                      <option value="not_bestseller">Not Bestseller</option>
+                    </SelectInput>
+                    <SelectInput value={menuImageFilter} onChange={(event) => setMenuImageFilter(event.target.value)}>
+                      <option value="all">All Images</option>
+                      <option value="missing">Missing Image</option>
+                      <option value="has_image">Has Image</option>
+                    </SelectInput>
+                    <TextInput
+                      type="number"
+                      min="0"
+                      value={menuPriceMin}
+                      onChange={(event) => setMenuPriceMin(event.target.value)}
+                      placeholder="Min price"
+                    />
+                    <TextInput
+                      type="number"
+                      min="0"
+                      value={menuPriceMax}
+                      onChange={(event) => setMenuPriceMax(event.target.value)}
+                      placeholder="Max price"
+                    />
+                    <SelectInput value={menuSortBy} onChange={(event) => setMenuSortBy(event.target.value)}>
+                      <option value="sortOrder">Sort Order</option>
+                      <option value="name">Name</option>
+                      <option value="price">Price</option>
+                      <option value="newest">Newest</option>
+                    </SelectInput>
+                    <ActionButton
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setMenuSearch('')
+                        setMenuCategoryFilter('all')
+                        setMenuDietFilter('all')
+                        setMenuAvailabilityFilter('all')
+                        setMenuBestsellerFilter('all')
+                        setMenuImageFilter('all')
+                        setMenuPriceMin('')
+                        setMenuPriceMax('')
+                        setMenuSortBy('sortOrder')
+                      }}
+                    >
+                      Clear All Filters
+                    </ActionButton>
+                  </div>
                 </div>
+
+                {menuSubTab === 'bulk' && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{selectedMenuIds.length} dishes selected</p>
+                        <p className="mt-1 text-xs text-slate-500">Use checkboxes below, then apply one bulk action at a time.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <ActionButton
+                          type="button"
+                          variant="secondary"
+                          disabled={busyKey === 'menu-bulk'}
+                          onClick={() => applyBulkMenuPatch({ isAvailable: true }, 'Selected dishes marked available')}
+                        >
+                          Mark Available
+                        </ActionButton>
+                        <ActionButton
+                          type="button"
+                          variant="secondary"
+                          disabled={busyKey === 'menu-bulk'}
+                          onClick={() => applyBulkMenuPatch({ isAvailable: false }, 'Selected dishes marked unavailable')}
+                        >
+                          Mark Out of Stock
+                        </ActionButton>
+                        <ActionButton
+                          type="button"
+                          variant="secondary"
+                          disabled={busyKey === 'menu-bulk'}
+                          onClick={() => applyBulkMenuPatch({ isBestseller: true }, 'Selected dishes marked bestseller')}
+                        >
+                          Mark Bestseller
+                        </ActionButton>
+                        <ActionButton
+                          type="button"
+                          variant="secondary"
+                          disabled={busyKey === 'menu-bulk' || !bulkCategoryId}
+                          onClick={() => applyBulkMenuPatch({ categoryId: Number(bulkCategoryId) }, 'Selected dishes moved')}
+                        >
+                          Move Category
+                        </ActionButton>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-[220px_160px_auto_auto]">
+                      <SelectInput value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}>
+                        <option value="">Bulk category</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </SelectInput>
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={bulkPriceDelta}
+                        onChange={(event) => setBulkPriceDelta(event.target.value)}
+                        placeholder="+/- INR"
+                      />
+                      <ActionButton
+                        type="button"
+                        variant="secondary"
+                        disabled={busyKey === 'menu-bulk'}
+                        onClick={applyBulkPriceUpdate}
+                      >
+                        Apply Price Change
+                      </ActionButton>
+                      <ActionButton
+                        type="button"
+                        variant="danger"
+                        disabled={busyKey === 'menu-bulk'}
+                        onClick={bulkDeleteMenuItems}
+                      >
+                        Delete Selected
+                      </ActionButton>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-6 grid gap-4">
                   {filteredMenuItems.map((item) => (
                     <div key={item.id} className="rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="flex gap-4">
+                          {menuSubTab === 'bulk' && (
+                            <input
+                              type="checkbox"
+                              checked={selectedMenuIds.includes(item.id)}
+                              onChange={(event) =>
+                                setSelectedMenuIds((current) =>
+                                  event.target.checked
+                                    ? [...new Set([...current, item.id])]
+                                    : current.filter((id) => id !== item.id),
+                                )
+                              }
+                              className="mt-8 h-4 w-4 accent-blue-600"
+                              aria-label={`Select ${item.name}`}
+                            />
+                          )}
                           <img
                             src={item.img || 'https://placehold.co/160x120/120805/F5ECD7?text=Menu'}
                             alt={item.name}
@@ -1942,9 +2651,25 @@ export default function AdminDashboard() {
                             )}
                             <p className="mt-1 text-sm text-slate-600">{item.desc}</p>
                             <p className="mt-2 text-xs text-slate-500">
-                              {item.category?.name} | {item.veg ? 'veg' : 'non-veg'} |{' '}
-                              {item.available ? 'available' : 'unavailable'} | sort {item.sortOrder || 0}
+                              {item.category?.name} | {toLabelCase(item.dietaryType || (item.veg ? 'veg' : 'non_veg'))} |{' '}
+                              {item.preparationTimeMinutes ? `${item.preparationTimeMinutes} mins | ` : ''}
+                              {item.spiceLevel ? `${toLabelCase(item.spiceLevel)} spice | ` : ''}
+                              sort {item.sortOrder || 0}
                             </p>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <StatusBadge value={item.available ? 'available' : 'unavailable'} kind="menu" />
+                              {item.bestseller && <StatusBadge value="bestseller" kind="menu" />}
+                              {!item.img && (
+                                <span className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                                  Missing Image
+                                </span>
+                              )}
+                              {(item.tags || []).map((tag) => (
+                                <span key={`${item.id}-${tag}`} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -1974,6 +2699,9 @@ export default function AdminDashboard() {
                           >
                             {item.bestseller ? 'Bestseller' : 'Make Bestseller'}
                           </QuickPillButton>
+                          <QuickPillButton active={false} onClick={() => duplicateMenuItem(item)}>
+                            Duplicate
+                          </QuickPillButton>
                           <button
                             type="button"
                             onClick={() =>
@@ -1981,21 +2709,27 @@ export default function AdminDashboard() {
                                 id: item.id,
                                 categoryId: String(item.category?.id || ''),
                                 name: item.name,
-                              shortDescription: item.desc || '',
-                              description: item.description || '',
-                              imageUrl: item.imageMediumUrl || item.imageUrl || item.img || '',
-                              imagePublicId: '',
-                              imageThumbnailUrl: item.imageThumbnailUrl || '',
-                              imageMediumUrl: item.imageMediumUrl || '',
-                              imageLargeUrl: item.imageLargeUrl || '',
-                              imageAlt: item.imageAlt || item.name,
-                              imageSize: item.imageSize ? String(item.imageSize) : '',
-                              imageMimeType: item.imageMimeType || '',
-                              price: String(item.price),
-                              variants: item.variants || [],
-                              isVeg: item.veg,
-                              isBestseller: item.bestseller,
-                              isAvailable: item.available,
+                                shortDescription: item.desc || '',
+                                description: item.description || '',
+                                imageUrl: item.imageMediumUrl || item.imageUrl || item.img || '',
+                                imagePublicId: '',
+                                imageThumbnailUrl: item.imageThumbnailUrl || '',
+                                imageMediumUrl: item.imageMediumUrl || '',
+                                imageLargeUrl: item.imageLargeUrl || '',
+                                imageAlt: item.imageAlt || item.name,
+                                imageSize: item.imageSize ? String(item.imageSize) : '',
+                                imageMimeType: item.imageMimeType || '',
+                                price: String(item.price),
+                                variants: item.variants || [],
+                                dietaryType: item.dietaryType || (item.veg ? 'veg' : 'non_veg'),
+                                preparationTimeMinutes: item.preparationTimeMinutes
+                                  ? String(item.preparationTimeMinutes)
+                                  : '',
+                                spiceLevel: item.spiceLevel || 'medium',
+                                tags: item.tags || [],
+                                isVeg: item.veg,
+                                isBestseller: item.bestseller,
+                                isAvailable: item.available,
                                 sortOrder: String(item.sortOrder || 0),
                               })
                             }
@@ -2042,6 +2776,7 @@ export default function AdminDashboard() {
                   )}
                 </div>
               </SectionCard>
+              )}
               </div>
             </div>
           )}
@@ -2052,7 +2787,7 @@ export default function AdminDashboard() {
               description="Review backend-stored orders, linked customer accounts, promo usage, and update order statuses in real time."
             >
               <div className="rounded-[18px] border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.15fr)_210px_210px_auto] xl:items-center">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.15fr)_180px_180px_170px_150px_150px] xl:items-center">
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <TextInput
@@ -2085,6 +2820,19 @@ export default function AdminDashboard() {
                     ))}
                   </SelectInput>
 
+                  <SelectInput
+                    value={orderPaymentMethodFilter}
+                    onChange={(event) => {
+                      setOrderPaymentMethodFilter(event.target.value)
+                      setOrderPage(1)
+                    }}
+                    className="bg-slate-50"
+                  >
+                    <option value="all">COD / Online</option>
+                    <option value="cod">COD</option>
+                    <option value="online">Razorpay / Online</option>
+                  </SelectInput>
+
                   <SelectInput value={orderDateFilter} onChange={(event) => { setOrderDateFilter(event.target.value); setOrderPage(1) }} className="bg-slate-50">
                     <option value="all">All Time</option>
                     <option value="today">Today</option>
@@ -2098,6 +2846,26 @@ export default function AdminDashboard() {
                     <option value="bachupally">Bachupally</option>
                   </SelectInput>
 
+                  <TextInput
+                    type="date"
+                    value={orderDateFrom}
+                    onChange={(event) => {
+                      setOrderDateFrom(event.target.value)
+                      setOrderPage(1)
+                    }}
+                    className="bg-slate-50"
+                  />
+
+                  <TextInput
+                    type="date"
+                    value={orderDateTo}
+                    onChange={(event) => {
+                      setOrderDateTo(event.target.value)
+                      setOrderPage(1)
+                    }}
+                    className="bg-slate-50"
+                  />
+
                   <ActionButton
                     type="button"
                     variant="secondary"
@@ -2105,8 +2873,11 @@ export default function AdminDashboard() {
                       setOrderSearch('')
                       setOrderStatusFilter('all')
                       setOrderPaymentFilter('all')
+                      setOrderPaymentMethodFilter('all')
                       setOrderDateFilter('all')
                       setOrderBranchFilter('all')
+                      setOrderDateFrom('')
+                      setOrderDateTo('')
                       setOrderPage(1)
                       setExpandedOrderId(null)
                     }}
@@ -2140,6 +2911,7 @@ export default function AdminDashboard() {
                 setExpandedOrderId={setExpandedOrderId}
                 busyKey={busyKey}
                 updateOrderField={updateOrderField}
+                onPrintOrder={handlePrintOrder}
               />
               {totalOrderPages > 1 && (
                 <div className="mt-4 flex items-center justify-center gap-2">
@@ -2168,6 +2940,419 @@ export default function AdminDashboard() {
                   </ActionButton>
                 </div>
               )}
+            </SectionCard>
+          )}
+
+          {activeTab === 'orders-print' && (
+            <div className="grid gap-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                <MetricTile label="Queued Jobs" value={printJobs.filter((job) => job.status === 'pending').length} hint="Waiting for station" />
+                <MetricTile label="Failed Jobs" value={printJobs.filter((job) => job.status === 'failed').length} hint="Needs retry" />
+                <MetricTile label="Print Station" value={printStationStatus.length > 0 ? 'Online' : 'Offline'} hint="Browser station status" />
+              </div>
+              <SectionCard
+                title="Orders & Print"
+                description="Queued print jobs stay on the VPS until a local print station receives them."
+                actions={
+                  <a
+                    href="/admin/print-station"
+                    target="_blank"
+                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Open Print Station
+                  </a>
+                }
+              >
+                <div className="grid gap-4">
+                  {printJobs.map((job) => (
+                    <div key={job.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-950">{job.order?.orderNumber || `Print Job #${job.id}`}</p>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {toLabelCase(job.branchId || 'default')} | {formatCurrency(job.order?.grandTotal || 0)} | {formatDateTime(job.createdAt)}
+                          </p>
+                          {job.errorMessage && <p className="mt-2 text-sm text-red-600">{job.errorMessage}</p>}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge value={job.status} kind="print" />
+                          <ActionButton
+                            type="button"
+                            variant="secondary"
+                            disabled={busyKey === `retry-print-${job.id}`}
+                            onClick={async () => {
+                              try {
+                                setBusyKey(`retry-print-${job.id}`)
+                                await adminApi.retryPrintJob(job.id)
+                                setNotice('Print job queued for retry')
+                                await fetchPrintData()
+                              } catch (requestError) {
+                                setError(requestError.message || 'Could not retry print job')
+                              } finally {
+                                setBusyKey('')
+                              }
+                            }}
+                          >
+                            Retry
+                          </ActionButton>
+                          <ActionButton
+                            type="button"
+                            variant="secondary"
+                            disabled={busyKey === `mark-print-${job.id}`}
+                            onClick={async () => {
+                              try {
+                                setBusyKey(`mark-print-${job.id}`)
+                                await adminApi.markPrintJobPrinted(job.id)
+                                setNotice('Print job marked printed')
+                                await fetchPrintData()
+                              } catch (requestError) {
+                                setError(requestError.message || 'Could not mark print job printed')
+                              } finally {
+                                setBusyKey('')
+                              }
+                            }}
+                          >
+                            Mark Printed
+                          </ActionButton>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {printJobs.length === 0 && <EmptyPanel title="No print jobs yet" description="New orders will create queued jobs automatically." />}
+                </div>
+              </SectionCard>
+            </div>
+          )}
+
+          {activeTab === 'customers' && (
+            <SectionCard
+              title="Customers"
+              description="Customers are derived from order history so existing checkout data stays intact."
+              actions={
+                <ActionButton
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    exportCsv(
+                      'customers.csv',
+                      customerRows.map((customer) => ({
+                        name: customer.name,
+                        phone: customer.phone,
+                        email: customer.email,
+                        totalOrders: customer.totalOrders,
+                        totalSpend: customer.totalSpend,
+                        lastOrderDate: formatDateTime(customer.lastOrderDate),
+                      })),
+                    )
+                  }
+                >
+                  Export CSV
+                </ActionButton>
+              }
+            >
+              <div className="mb-4">
+                <TextInput
+                  value={customerSearch}
+                  onChange={(event) => setCustomerSearch(event.target.value)}
+                  placeholder="Search customers by name, phone, or email"
+                />
+              </div>
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <div className="hidden grid-cols-[1.2fr_1fr_1.4fr_110px_130px_160px] gap-3 bg-slate-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[1.4px] text-slate-500 lg:grid">
+                  <span>Name</span><span>Phone</span><span>Email</span><span>Orders</span><span>Spend</span><span>Last Order</span>
+                </div>
+                {customerRows.map((customer) => (
+                  <div key={customer.key} className="grid gap-3 border-t border-slate-200 px-4 py-4 text-sm lg:grid-cols-[1.2fr_1fr_1.4fr_110px_130px_160px]">
+                    <span className="font-semibold text-slate-950">{customer.name}</span>
+                    <span>{customer.phone || '-'}</span>
+                    <span className="break-all">{customer.email || '-'}</span>
+                    <span>{customer.totalOrders}</span>
+                    <span>{formatCurrency(customer.totalSpend)}</span>
+                    <span>{formatDate(customer.lastOrderDate)}</span>
+                  </div>
+                ))}
+              </div>
+              {customerRows.length === 0 && <EmptyPanel title="No customers found" description="Customer records appear after orders are placed." />}
+            </SectionCard>
+          )}
+
+          {activeTab === 'payments' && (
+            <SectionCard
+              title="Payments"
+              description="Audit COD and Razorpay payment status from order payment records."
+              actions={
+                <ActionButton
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    exportCsv(
+                      'payments.csv',
+                      paymentRows.map((payment) => ({
+                        order: payment.order.orderNumber,
+                        customer: payment.customerName,
+                        method: payment.method,
+                        status: payment.status,
+                        amount: payment.amount,
+                        razorpayOrderId: payment.providerOrderId,
+                        razorpayPaymentId: payment.providerPaymentId,
+                      })),
+                    )
+                  }
+                >
+                  Export CSV
+                </ActionButton>
+              }
+            >
+              <div className="mb-4 grid gap-3 md:grid-cols-3">
+                <TextInput value={paymentSearch} onChange={(event) => setPaymentSearch(event.target.value)} placeholder="Search payment or order" />
+                <SelectInput value={orderPaymentFilter} onChange={(event) => setOrderPaymentFilter(event.target.value)}>
+                  <option value="all">All Payment Statuses</option>
+                  {paymentStatuses.map((status) => <option key={status} value={status}>{toLabelCase(status)}</option>)}
+                </SelectInput>
+                <SelectInput value={orderPaymentMethodFilter} onChange={(event) => setOrderPaymentMethodFilter(event.target.value)}>
+                  <option value="all">All Methods</option>
+                  <option value="cod">COD</option>
+                  <option value="online">Razorpay / Online</option>
+                </SelectInput>
+              </div>
+              <div className="grid gap-3">
+                {paymentRows.map((payment) => (
+                  <div key={payment.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                    <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_1fr] lg:items-center">
+                      <div>
+                        <p className="font-semibold text-slate-950">{payment.order.orderNumber}</p>
+                        <p className="mt-1 text-sm text-slate-500">{payment.customerName}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge value={payment.method} kind="method" />
+                        <StatusBadge value={payment.status} kind="payment" />
+                      </div>
+                      <p className="font-semibold text-slate-950">{formatCurrency(payment.amount)}</p>
+                      <p className="break-all font-mono text-xs text-slate-500">{payment.providerPaymentId || payment.failureReason || 'COD / not captured'}</p>
+                    </div>
+                  </div>
+                ))}
+                {paymentRows.length === 0 && <EmptyPanel title="No payments found" description="Change filters or wait for new orders." />}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeTab === 'reports' && (
+            <div className="grid gap-6">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <MetricTile label="Revenue Today" value={formatCurrency(dashboard?.businessSnapshot?.revenueToday || 0)} hint="Paid today" />
+                <MetricTile label="Orders Today" value={dashboard?.businessSnapshot?.ordersToday || 0} hint="All methods" />
+                <MetricTile label="COD Orders" value={dashboard?.businessSnapshot?.codOrders || 0} hint="Today" />
+                <MetricTile label="Online Paid" value={dashboard?.businessSnapshot?.onlinePaidOrders || 0} hint="Today" />
+              </div>
+              <SectionCard
+                title="Reports"
+                description="Revenue, order, best-seller, category, branch, and payment method summaries."
+                actions={
+                  <ActionButton
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      exportCsv(
+                        'reports-orders.csv',
+                        filteredOrders.map((order) => ({
+                          order: order.orderNumber,
+                          status: order.orderStatus,
+                          payment: order.paymentStatus,
+                          method: order.paymentMethod,
+                          branch: order.storeLocation,
+                          amount: order.pricing?.grandTotal,
+                          createdAt: formatDateTime(order.createdAt),
+                        })),
+                      )
+                    }
+                  >
+                    Export CSV
+                  </ActionButton>
+                }
+              >
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <div>
+                    <p className="mb-3 text-sm font-semibold text-slate-900">Daily Revenue</p>
+                    <MiniBarChart items={dashboard?.charts?.dailyRevenue || []} formatter={(value) => formatCurrency(value)} />
+                  </div>
+                  <div>
+                    <p className="mb-3 text-sm font-semibold text-slate-900">Orders By Day</p>
+                    <MiniBarChart items={dashboard?.charts?.ordersByDay || []} />
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="mb-3 text-sm font-semibold text-slate-900">Best Sellers</p>
+                    {(dashboard?.charts?.bestSellingItems || []).map((item) => (
+                      <div key={item.label} className="mb-2 flex justify-between gap-3 text-sm last:mb-0">
+                        <span className="truncate text-slate-600">{item.label}</span>
+                        <span className="font-semibold">{item.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="mb-3 text-sm font-semibold text-slate-900">Branch Performance</p>
+                    {branchRows.map((branch) => (
+                      <div key={branch.id} className="mb-2 flex justify-between gap-3 text-sm last:mb-0">
+                        <span className="text-slate-600">{branch.name}</span>
+                        <span className="font-semibold">{branch.orders} / {formatCurrency(branch.revenue)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </SectionCard>
+            </div>
+          )}
+
+          {activeTab === 'inventory' && (
+            <SectionCard title="Inventory" description="Mark dishes available or out of stock without editing the full dish form.">
+              <div className="grid gap-3">
+                {menuItems.map((item) => (
+                  <div key={item.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-950">{item.name}</p>
+                      <p className="mt-1 text-sm text-slate-500">{item.category?.name || 'No category'} | {formatCurrency(item.price)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <StatusBadge value={item.available ? 'available' : 'out_of_stock'} kind="menu" />
+                      <ActionButton
+                        type="button"
+                        variant="secondary"
+                        onClick={() => quickUpdateMenuItem(item.id, { isAvailable: !item.available }, item.available ? 'Marked out of stock' : 'Marked available')}
+                      >
+                        {item.available ? 'Mark Out of Stock' : 'Mark Available'}
+                      </ActionButton>
+                    </div>
+                  </div>
+                ))}
+                {menuItems.length === 0 && <EmptyPanel title="No dishes found" description="Create dishes from the Menu page first." />}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeTab === 'branches' && (
+            <SectionCard title="Branches" description="Branch-level order activity and print station status.">
+              <div className="grid gap-4 md:grid-cols-2">
+                {branchRows.map((branch) => (
+                  <div key={branch.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-950">{branch.name}</p>
+                        <p className="mt-1 text-sm text-slate-500">Active branch</p>
+                      </div>
+                      <StatusBadge value={printStationStatus.some((station) => station.branchId === branch.id) ? 'printed' : 'not_printed'} kind="print" />
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <MetricTile label="Orders" value={branch.orders} hint="Loaded" />
+                      <MetricTile label="Pending" value={branch.pending} hint="Needs action" />
+                      <MetricTile label="Revenue" value={formatCurrency(branch.revenue)} hint="Loaded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeTab === 'staff' && (
+            <SectionCard title="Staff & Roles" description="Role model for production staff access. Current admin auth remains unchanged.">
+              <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-950">{admin?.name || 'Admin'}</p>
+                  <p className="mt-1 break-all text-sm text-slate-600">{admin?.email}</p>
+                  <StatusBadge value="accepted" kind="order" />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[
+                    ['Super Admin', 'All permissions'],
+                    ['Admin', 'Manage orders, menu, offers, reports, and settings'],
+                    ['Manager', 'Orders, reports, print, and inventory'],
+                    ['Kitchen Staff', 'View and update kitchen orders'],
+                    ['Counter Staff', 'View orders and print bills'],
+                  ].map(([role, permissions]) => (
+                    <div key={role} className="rounded-xl border border-slate-200 bg-white p-4">
+                      <p className="font-semibold text-slate-950">{role}</p>
+                      <p className="mt-1 text-sm text-slate-500">{permissions}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </SectionCard>
+          )}
+
+          {activeTab === 'activity' && (
+            <SectionCard title="Activity Logs" description="Operational activity derived from orders, print jobs, and menu changes.">
+              <div className="grid gap-3">
+                {activityRows.map((row) => (
+                  <div key={row.id} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm md:grid-cols-[140px_1fr_1fr_170px]">
+                    <span className="font-semibold text-slate-950">{row.user}</span>
+                    <span>{row.action}</span>
+                    <span className="truncate text-slate-600">{row.entity} | {row.details}</span>
+                    <span className="text-slate-500">{formatDateTime(row.time)}</span>
+                  </div>
+                ))}
+                {activityRows.length === 0 && <EmptyPanel title="No activity yet" description="Changes will appear here after orders and menu updates." />}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeTab === 'expenses' && (
+            <SectionCard title="Expenses" description="Capture simple daily expenses for the current admin session.">
+              <form onSubmit={addExpense} className="mb-5 grid gap-3 md:grid-cols-[1fr_140px_150px_1fr_auto]">
+                <TextInput value={expenseForm.category} onChange={(event) => setExpenseForm((current) => ({ ...current, category: event.target.value }))} placeholder="Category" />
+                <TextInput type="number" min="1" step="0.01" value={expenseForm.amount} onChange={(event) => setExpenseForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Amount" />
+                <TextInput type="date" value={expenseForm.date} onChange={(event) => setExpenseForm((current) => ({ ...current, date: event.target.value }))} />
+                <TextInput value={expenseForm.notes} onChange={(event) => setExpenseForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notes" />
+                <ActionButton type="submit">Add</ActionButton>
+              </form>
+              <div className="grid gap-3">
+                {expenses.map((expense) => (
+                  <div key={expense.id} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm md:grid-cols-[1fr_140px_140px_1fr]">
+                    <span className="font-semibold">{expense.category}</span>
+                    <span>{formatCurrency(expense.amount)}</span>
+                    <span>{expense.date}</span>
+                    <span className="text-slate-500">{expense.notes || '-'}</span>
+                  </div>
+                ))}
+                {expenses.length === 0 && <EmptyPanel title="No expenses added" description="Add a daily expense above." />}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeTab === 'print-settings' && (
+            <SectionCard title="Print Settings" description="Configure automatic bill printing and browser print station behavior.">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <ToggleInput
+                  label="Auto Print Enabled"
+                  checked={printSettings?.autoPrintEnabled ?? true}
+                  onChange={(event) => savePrintSettings({ autoPrintEnabled: event.target.checked })}
+                />
+                <ToggleInput
+                  label="Sound Alert Enabled"
+                  checked={printSettings?.soundEnabled ?? true}
+                  onChange={(event) => savePrintSettings({ soundEnabled: event.target.checked })}
+                />
+                <Field label="Paper Size">
+                  <SelectInput value={printSettings?.paperSize || '80mm'} onChange={(event) => savePrintSettings({ paperSize: event.target.value })}>
+                    <option value="58mm">58mm</option>
+                    <option value="80mm">80mm</option>
+                    <option value="A4">A4</option>
+                  </SelectInput>
+                </Field>
+                <Field label="Restaurant Name">
+                  <TextInput value={printSettings?.restaurantName || ''} onChange={(event) => setPrintSettings((current) => ({ ...(current || {}), restaurantName: event.target.value }))} onBlur={(event) => savePrintSettings({ restaurantName: event.target.value })} />
+                </Field>
+                <Field label="Printer Name">
+                  <TextInput value={printSettings?.defaultPrinterName || ''} onChange={(event) => setPrintSettings((current) => ({ ...(current || {}), defaultPrinterName: event.target.value }))} onBlur={(event) => savePrintSettings({ defaultPrinterName: event.target.value })} />
+                </Field>
+                <Field label="Copies">
+                  <TextInput type="number" min="1" max="5" value={printSettings?.copies || 1} onChange={(event) => setPrintSettings((current) => ({ ...(current || {}), copies: event.target.value }))} onBlur={(event) => savePrintSettings({ copies: Number(event.target.value || 1) })} />
+                </Field>
+              </div>
+              <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">Station Status</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {printStationStatus.length > 0 ? `${printStationStatus.length} print station connected.` : 'Print station offline. New bills will be queued.'}
+                </p>
+              </div>
             </SectionCard>
           )}
 
@@ -3443,6 +4628,50 @@ export default function AdminDashboard() {
           </main>
         </div>
       </div>
+      {(notice || error) && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-sm">
+          <div
+            className={`rounded-xl border px-5 py-4 text-sm shadow-xl ${
+              error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <p>{error || notice}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setError('')
+                  setNotice('')
+                }}
+                className="font-semibold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
+          <div className="w-full max-w-md rounded-[20px] border border-slate-200 bg-white p-6 shadow-2xl">
+            <p className="text-xl font-semibold text-slate-950">{confirmDialog.title}</p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{confirmDialog.message}</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <ActionButton type="button" variant="secondary" onClick={() => resolveConfirmation(false)}>
+                Cancel
+              </ActionButton>
+              <ActionButton
+                type="button"
+                variant={confirmDialog.danger ? 'danger' : 'primary'}
+                onClick={() => resolveConfirmation(true)}
+              >
+                {confirmDialog.actionLabel}
+              </ActionButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
