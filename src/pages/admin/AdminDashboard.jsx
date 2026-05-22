@@ -1633,8 +1633,8 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f8fb] text-slate-900">
-      <div className="mx-auto flex max-w-[1600px] gap-5 px-4 py-4 md:px-5 lg:px-6">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#f6f8fb] text-slate-900">
+      <div className="mx-auto flex w-full max-w-[1600px] gap-5 px-3 py-4 sm:px-4 md:px-5 lg:px-6">
         <aside className="hidden h-full min-h-0 w-[276px] shrink-0 overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)]">
           <div className="shrink-0 border-b border-slate-200 px-5 py-5">
             <div className="flex items-center gap-4">
@@ -1701,11 +1701,11 @@ export default function AdminDashboard() {
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-x-hidden">
           <header className="shrink-0 rounded-[20px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="px-5 py-5 md:px-6">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                <div>
+                <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-[1.8px] text-slate-500">{activeTabConfig.group}</p>
                   <p className="mt-2 text-[28px] font-semibold leading-none tracking-[-0.02em] text-slate-950">{activeTabConfig.label}</p>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
@@ -1713,7 +1713,7 @@ export default function AdminDashboard() {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap gap-3">
+                <div className="flex max-w-full flex-wrap gap-3">
                   <ActionButton
                     type="button"
                     variant="secondary"
@@ -1746,7 +1746,7 @@ export default function AdminDashboard() {
             </div>
           </header>
 
-          <main className="px-0 py-6 pr-2">
+          <main className="w-full max-w-full overflow-x-hidden px-0 py-5 lg:pr-2">
             {error && (
               <div className="mb-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
                 <span>{error}</span>
@@ -2147,8 +2147,8 @@ export default function AdminDashboard() {
  
               {menuSubTab !== 'categories' && (
               <SectionCard title="Menu Items" description="Manage dishes, pricing, availability, and images.">
-                <form onSubmit={submitMenuItem} noValidate className="grid gap-4">
-                  <div className="grid gap-4 md:grid-cols-2">
+                <form onSubmit={submitMenuItem} noValidate className="grid min-w-0 gap-3.5">
+                  <div className="grid min-w-0 gap-3 md:grid-cols-2">
                     <Field label="Item Name">
                       <TextInput
                         required
@@ -2175,7 +2175,7 @@ export default function AdminDashboard() {
                     </Field>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)]">
                     <Field label="Short Description">
                       <TextInput
                         value={menuItemForm.shortDescription}
@@ -2228,7 +2228,7 @@ export default function AdminDashboard() {
 
                   <Field label="Full Description">
                     <TextArea
-                      rows="3"
+                      rows="2"
                       value={menuItemForm.description}
                       onChange={(event) =>
                         setMenuItemForm((current) => ({ ...current, description: event.target.value }))
@@ -2237,7 +2237,7 @@ export default function AdminDashboard() {
                     />
                   </Field>
 
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="Food Type">
                       <SelectInput
                         value={menuItemForm.dietaryType}
@@ -2291,9 +2291,9 @@ export default function AdminDashboard() {
                     </Field>
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                    <div className="mb-3 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
                         <p className="text-[11px] font-semibold uppercase tracking-[1.6px] text-slate-500">Size Options</p>
                         <p className="mt-1 text-xs text-slate-500">Add Single and Full prices in INR for the same dish.</p>
                       </div>
@@ -2350,7 +2350,7 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="Base Price (INR)" hint="Used when no size option is selected or configured.">
                       <TextInput
                         required
@@ -2394,7 +2394,7 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex max-w-full flex-wrap items-center gap-2.5">
                     <ToggleInput
                       label="Available"
                       checked={menuItemForm.isAvailable}
@@ -2417,8 +2417,8 @@ export default function AdminDashboard() {
                   </div>
                 </form>
 
-                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                     <div className="relative">
                       <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <TextInput
@@ -2447,7 +2447,7 @@ export default function AdminDashboard() {
                     </ActionButton>
                   </div>
 
-                  <div className="scrollbar-hide mt-4 flex gap-2 overflow-x-auto pb-1">
+                  <div className="scrollbar-hide mt-3 flex gap-2 overflow-x-auto pb-1">
                     <QuickPillButton active={menuCategoryFilter === 'all'} onClick={() => setMenuCategoryFilter('all')}>
                       All Dishes
                     </QuickPillButton>
@@ -2462,7 +2462,7 @@ export default function AdminDashboard() {
                     ))}
                   </div>
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="mt-3 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <SelectInput value={menuDietFilter} onChange={(event) => setMenuDietFilter(event.target.value)}>
                       <option value="all">All Food Types</option>
                       <option value="veg">Veg</option>
@@ -2532,13 +2532,13 @@ export default function AdminDashboard() {
                 </div>
 
                 {menuSubTab === 'bulk' && (
-                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                    <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900">{selectedMenuIds.length} dishes selected</p>
                         <p className="mt-1 text-xs text-slate-500">Use checkboxes below, then apply one bulk action at a time.</p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex max-w-full flex-wrap gap-2">
                         <ActionButton
                           type="button"
                           variant="secondary"
@@ -2573,7 +2573,7 @@ export default function AdminDashboard() {
                         </ActionButton>
                       </div>
                     </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-[220px_160px_auto_auto]">
+                    <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[220px_160px_auto_auto]">
                       <SelectInput value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}>
                         <option value="">Bulk category</option>
                         {categories.map((category) => (
@@ -2609,11 +2609,11 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                <div className="mt-6 grid gap-4">
+                <div className="mt-5 grid gap-3">
                   {filteredMenuItems.map((item) => (
-                    <div key={item.id} className="rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="flex gap-4">
+                    <div key={item.id} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-4">
+                      <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-start">
                           {menuSubTab === 'bulk' && (
                             <input
                               type="checkbox"
@@ -2625,32 +2625,38 @@ export default function AdminDashboard() {
                                     : current.filter((id) => id !== item.id),
                                 )
                               }
-                              className="mt-8 h-4 w-4 accent-blue-600"
+                              className="mt-1 h-4 w-4 shrink-0 accent-blue-600 sm:mt-8"
                               aria-label={`Select ${item.name}`}
                             />
                           )}
-                          <img
-                            src={item.img || 'https://placehold.co/160x120/120805/F5ECD7?text=Menu'}
-                            alt={item.name}
-                            className="h-20 w-24 rounded-xl object-cover"
-                          />
-                          <div>
-                            <p className="font-semibold text-slate-900">{item.name}</p>
-                            <p className="mt-1 text-sm font-semibold text-slate-900">{formatCurrency(item.price)}</p>
+                          <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 sm:h-24 sm:w-28">
+                            {item.img ? (
+                              <img src={item.img} alt={item.name} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center px-3 text-center text-xs font-semibold text-slate-400">
+                                No image
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                              <p className="min-w-0 break-words font-semibold leading-6 text-slate-900">{item.name}</p>
+                              <p className="shrink-0 text-sm font-semibold text-slate-900">{formatCurrency(item.price)}</p>
+                            </div>
                             {item.variants?.length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-1.5">
                                 {item.variants.map((variant) => (
                                   <span
                                     key={`${item.id}-${variant.label}`}
-                                    className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600"
+                                    className="max-w-full break-words rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium leading-4 text-slate-600"
                                   >
                                     {variant.label}: {formatCurrency(variant.price)}
                                   </span>
                                 ))}
                               </div>
                             )}
-                            <p className="mt-1 text-sm text-slate-600">{item.desc}</p>
-                            <p className="mt-2 text-xs text-slate-500">
+                            <p className="mt-1 break-words text-sm leading-5 text-slate-600">{item.desc || 'No short description'}</p>
+                            <p className="mt-2 break-words text-xs leading-5 text-slate-500">
                               {item.category?.name} | {toLabelCase(item.dietaryType || (item.veg ? 'veg' : 'non_veg'))} |{' '}
                               {item.preparationTimeMinutes ? `${item.preparationTimeMinutes} mins | ` : ''}
                               {item.spiceLevel ? `${toLabelCase(item.spiceLevel)} spice | ` : ''}
@@ -2665,14 +2671,14 @@ export default function AdminDashboard() {
                                 </span>
                               )}
                               {(item.tags || []).map((tag) => (
-                                <span key={`${item.id}-${tag}`} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600">
+                              <span key={`${item.id}-${tag}`} className="max-w-full break-words rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium leading-4 text-slate-600">
                                   {tag}
                                 </span>
                               ))}
                             </div>
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex max-w-full shrink-0 flex-wrap gap-2 xl:max-w-[360px] xl:justify-end">
                           <QuickPillButton
                             active={item.available}
                             disabled={busyKey === `menu-quick-${item.id}`}
@@ -3231,17 +3237,19 @@ export default function AdminDashboard() {
 
           {activeTab === 'branches' && (
             <SectionCard title="Branches" description="Branch-level order activity and print station status.">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid min-w-0 gap-4 lg:grid-cols-2">
                 {branchRows.map((branch) => (
-                  <div key={branch.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-950">{branch.name}</p>
-                        <p className="mt-1 text-sm text-slate-500">Active branch</p>
+                  <div key={branch.id} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-5">
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="break-words font-semibold leading-6 text-slate-950">{branch.name}</p>
+                        <p className="mt-1 break-words text-sm leading-5 text-slate-500">Active branch</p>
                       </div>
-                      <StatusBadge value={printStationStatus.some((station) => station.branchId === branch.id) ? 'printed' : 'not_printed'} kind="print" />
+                      <div className="shrink-0">
+                        <StatusBadge value={printStationStatus.some((station) => station.branchId === branch.id) ? 'printed' : 'not_printed'} kind="print" />
+                      </div>
                     </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-3">
                       <MetricTile label="Orders" value={branch.orders} hint="Loaded" />
                       <MetricTile label="Pending" value={branch.pending} hint="Needs action" />
                       <MetricTile label="Revenue" value={formatCurrency(branch.revenue)} hint="Loaded" />
