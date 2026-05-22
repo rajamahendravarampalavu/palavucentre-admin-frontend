@@ -117,6 +117,10 @@ function normalizeMenuItem(item, options) {
   return {
     ...item,
     img: sanitizeAssetUrl(item.img, options),
+    imageUrl: sanitizeAssetUrl(item.imageUrl, options),
+    imageThumbnailUrl: sanitizeAssetUrl(item.imageThumbnailUrl, options),
+    imageMediumUrl: sanitizeAssetUrl(item.imageMediumUrl, options),
+    imageLargeUrl: sanitizeAssetUrl(item.imageLargeUrl, options),
   }
 }
 
@@ -246,7 +250,26 @@ export function normalizeApiData(path, data, options = {}) {
   }
 
   if (path.startsWith('/admin/media/upload') && data.url) {
-    return { ...data, url: sanitizeAssetUrl(data.url, options) }
+    const sanitizeUploadVariant = (variant) => (
+      variant && typeof variant === 'object'
+        ? { ...variant, url: sanitizeAssetUrl(variant.url, options) }
+        : variant
+    )
+
+    return {
+      ...data,
+      url: sanitizeAssetUrl(data.url, options),
+      thumbnailUrl: sanitizeAssetUrl(data.thumbnailUrl, options),
+      mediumUrl: sanitizeAssetUrl(data.mediumUrl, options),
+      largeUrl: sanitizeAssetUrl(data.largeUrl, options),
+      variants: data.variants
+        ? {
+            thumbnail: sanitizeUploadVariant(data.variants.thumbnail),
+            medium: sanitizeUploadVariant(data.variants.medium),
+            large: sanitizeUploadVariant(data.variants.large),
+          }
+        : data.variants,
+    }
   }
 
   if (path.startsWith('/menu')) {

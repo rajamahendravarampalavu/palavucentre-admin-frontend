@@ -32,6 +32,20 @@ export function toIsoDateTime(value) {
 }
 
 export function toLabelCase(value) {
+  const normalized = String(value || '')
+
+  if (normalized === 'cod') {
+    return 'COD'
+  }
+
+  if (normalized === 'delivered') {
+    return 'Completed'
+  }
+
+  if (normalized === 'non_veg') {
+    return 'Non-Veg'
+  }
+
   return String(value || '')
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (character) => character.toUpperCase())

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, MapPin, MessageSquare } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Clock3, MapPin, MessageSquare, Printer, RotateCcw } from 'lucide-react'
 
 import { formatCurrency, formatDateTime } from '../../shared/formatters.js'
 import { paymentStatuses, orderStatuses } from './AdminDashboard.constants'
@@ -23,6 +23,31 @@ function getNotesPreview(notes) {
   }
 
   return notes.length > 60 ? `${notes.slice(0, 60)}...` : notes
+}
+
+function getMinutesSince(value) {
+  const timestamp = new Date(value).getTime()
+
+  if (!Number.isFinite(timestamp)) {
+    return 0
+  }
+
+  return Math.max(0, Math.floor((Date.now() - timestamp) / 60000))
+}
+
+function getAgeBadge(order) {
+  const minutes = getMinutesSince(order.createdAt)
+  const label = minutes < 1 ? 'Placed now' : `Placed ${minutes} min${minutes === 1 ? '' : 's'} ago`
+
+  if (order.orderStatus === 'pending' && minutes >= 15) {
+    return { label, className: 'border-red-200 bg-red-50 text-red-700' }
+  }
+
+  if (order.orderStatus === 'pending' && minutes >= 5) {
+    return { label, className: 'border-amber-200 bg-amber-50 text-amber-700' }
+  }
+
+  return { label, className: 'border-slate-200 bg-slate-50 text-slate-600' }
 }
 
 export function SectionCard({ title, description, actions, children }) {
@@ -131,7 +156,7 @@ export function ImageUploadField({
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm font-semibold text-slate-900">Upload from device</p>
-            <p className="mt-1 text-xs text-slate-500">JPG, PNG, WEBP, GIF, SVG, or AVIF.</p>
+            <p className="mt-1 text-xs text-slate-500">JPG, PNG, WEBP, or AVIF. Menu uploads create thumbnail, medium, and large WebP versions.</p>
           </div>
           <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
             <input
@@ -173,10 +198,10 @@ export function StatusBadge({ value, kind = 'order' }) {
   const toneMap = {
     order: {
       pending: 'border-amber-200 bg-amber-50 text-amber-700',
-      accepted: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-      preparing: 'border-orange-200 bg-orange-50 text-orange-700',
-      ready: 'border-sky-200 bg-sky-50 text-sky-700',
-      delivered: 'border-teal-200 bg-teal-50 text-teal-700',
+      accepted: 'border-blue-200 bg-blue-50 text-blue-700',
+      preparing: 'border-violet-200 bg-violet-50 text-violet-700',
+      ready: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      delivered: 'border-slate-200 bg-slate-50 text-emerald-700',
       cancelled: 'border-red-200 bg-red-50 text-red-700',
     },
     payment: {
@@ -185,6 +210,24 @@ export function StatusBadge({ value, kind = 'order' }) {
       paid: 'border-emerald-200 bg-emerald-50 text-emerald-700',
       failed: 'border-red-200 bg-red-50 text-red-700',
       refunded: 'border-violet-200 bg-violet-50 text-violet-700',
+    },
+    method: {
+      cod: 'border-slate-200 bg-slate-50 text-slate-700',
+      online: 'border-blue-200 bg-blue-50 text-blue-700',
+    },
+    menu: {
+      available: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      unavailable: 'border-red-200 bg-red-50 text-red-700',
+      bestseller: 'border-slate-900 bg-slate-900 text-white',
+      out_of_stock: 'border-red-200 bg-red-50 text-red-700',
+    },
+    print: {
+      not_printed: 'border-slate-200 bg-slate-50 text-slate-600',
+      queued: 'border-amber-200 bg-amber-50 text-amber-700',
+      sent: 'border-blue-200 bg-blue-50 text-blue-700',
+      printing: 'border-violet-200 bg-violet-50 text-violet-700',
+      printed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      failed: 'border-red-200 bg-red-50 text-red-700',
     },
   }
 
@@ -230,7 +273,15 @@ export function QuickPillButton({ active, onClick, disabled, children }) {
   )
 }
 
-export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId, busyKey, updateOrderField, isLoading = false }) {
+export function OrdersList({
+  filteredOrders,
+  expandedOrderId,
+  setExpandedOrderId,
+  busyKey,
+  updateOrderField,
+  onPrintOrder,
+  isLoading = false,
+}) {
   return (
     <div className="mt-6 overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4">
@@ -250,7 +301,7 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
           {isLoading && (
             <>
               {Array.from({ length: 4 }).map((_, index) => (
-                <div key={index} className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_minmax(180px,0.7fr)_minmax(220px,0.9fr)_minmax(240px,1fr)_110px]">
+                <div key={index} className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_minmax(180px,0.7fr)_minmax(220px,0.9fr)_minmax(240px,1fr)_minmax(190px,0.7fr)]">
                   {Array.from({ length: 5 }).map((__, cellIndex) => (
                     <div key={cellIndex} className="space-y-3">
                       <div className="h-3 w-20 animate-pulse rounded bg-slate-200" />
@@ -271,10 +322,12 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
             const customerContact = order.account?.email || order.customer?.phone || 'No contact info'
             const createdAtLabel = formatDateTime(order.createdAt)
             const notes = getOrderNotes(order)
+            const ageBadge = getAgeBadge(order)
+            const quickStatuses = ['accepted', 'preparing', 'ready', 'delivered']
 
             return (
               <article key={order.id} className={`${isExpanded ? 'bg-slate-50/60' : 'bg-white hover:bg-slate-50/40'} transition`}>
-                <div className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_minmax(180px,0.7fr)_minmax(220px,0.9fr)_minmax(240px,1fr)_110px] xl:items-start">
+                <div className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_minmax(180px,0.7fr)_minmax(220px,0.9fr)_minmax(240px,1fr)_minmax(190px,0.7fr)] xl:items-start">
                   <div className="min-w-0">
                     <p className="mb-2 text-[10px] font-semibold uppercase tracking-[1.6px] text-slate-500">Order</p>
                     <button
@@ -297,6 +350,10 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
                           Promo {order.promo.code}
                         </span>
                       )}
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium ${ageBadge.className}`}>
+                        <Clock3 className="h-3 w-3" />
+                        {ageBadge.label}
+                      </span>
                     </div>
                     {order.items && order.items.length > 0 && (
                       <div className="mt-3 whitespace-normal text-[13px] leading-5 font-medium text-slate-700">
@@ -338,8 +395,10 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
                     </SelectInput>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <StatusBadge value={order.orderStatus} kind="order" />
                       <StatusBadge value={order.paymentStatus} kind="payment" />
-                      <span className="text-xs font-medium text-slate-500">{toLabelCase(order.paymentMethod)}</span>
+                      <StatusBadge value={order.printStatus || 'not_printed'} kind="print" />
+                      <StatusBadge value={order.paymentMethod} kind="method" />
                     </div>
                     {latestPayment?.providerPaymentId && (
                       <p className="mt-2 break-all text-[11px] leading-5 text-slate-500">
@@ -352,9 +411,37 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
                       {order.pricing?.discountAmount ? `Discount ${formatCurrency(order.pricing.discountAmount)}` : 'No discount'}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">{createdAtLabel}</p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {quickStatuses.map((status) => (
+                        <QuickPillButton
+                          key={status}
+                          active={order.orderStatus === status}
+                          disabled={isUpdatingOrder || order.orderStatus === status}
+                          onClick={() => updateOrderField(order.id, { orderStatus: status })}
+                        >
+                          {toLabelCase(status)}
+                        </QuickPillButton>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="flex items-start xl:justify-end">
+                  <div className="flex flex-wrap items-start gap-2 xl:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => onPrintOrder?.(order, 'print')}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+                    >
+                      <Printer className="h-4 w-4" />
+                      Print
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onPrintOrder?.(order, 'reprint')}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      Reprint
+                    </button>
                     <button
                       type="button"
                       onClick={() => setExpandedOrderId((current) => (current === order.id ? null : order.id))}
@@ -471,6 +558,12 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
                               </p>
                             </div>
                             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 sm:col-span-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-[1.6px] text-slate-500">Webhook Verified</p>
+                              <p className="mt-2 break-all font-mono text-xs text-slate-900">
+                                {latestPayment?.webhookVerifiedAt ? formatDateTime(latestPayment.webhookVerifiedAt) : 'Not verified by webhook yet'}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 sm:col-span-2">
                               <p className="text-[10px] font-semibold uppercase tracking-[1.6px] text-slate-500">Razorpay Order ID</p>
                               <p className="mt-2 break-all font-mono text-xs text-slate-900">
                                 {latestPayment?.providerOrderId || 'Not captured yet'}
@@ -480,6 +573,35 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
                         </div>
 
                         <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                          <div className="mb-4 flex flex-wrap gap-2">
+                            <ActionButton
+                              type="button"
+                              variant="secondary"
+                              onClick={() => onPrintOrder?.(order, 'print')}
+                              className="inline-flex items-center gap-2"
+                            >
+                              <Printer className="h-4 w-4" />
+                              Print Bill
+                            </ActionButton>
+                            <ActionButton
+                              type="button"
+                              variant="secondary"
+                              onClick={() => onPrintOrder?.(order, 'reprint')}
+                              className="inline-flex items-center gap-2"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                              Reprint
+                            </ActionButton>
+                            <ActionButton
+                              type="button"
+                              variant="secondary"
+                              disabled={isUpdatingOrder || order.orderStatus === 'cancelled'}
+                              onClick={() => updateOrderField(order.id, { orderStatus: 'cancelled' })}
+                              className="inline-flex items-center gap-2 text-red-700"
+                            >
+                              Cancel
+                            </ActionButton>
+                          </div>
                           <p className="text-[11px] font-semibold uppercase tracking-[1.6px] text-slate-500">Pricing</p>
                           <div className="mt-4 grid gap-3 sm:grid-cols-2">
                             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -511,7 +633,11 @@ export function OrdersList({ filteredOrders, expandedOrderId, setExpandedOrderId
           })}
 
           {!isLoading && filteredOrders.length === 0 && (
-            <div className="px-5 py-12 text-center text-sm text-slate-600">No orders match the current filters.</div>
+            <div className="px-5 py-12 text-center">
+              <Check className="mx-auto h-9 w-9 text-emerald-500" />
+              <p className="mt-3 text-sm font-semibold text-slate-900">No orders match the current filters.</p>
+              <p className="mt-1 text-sm text-slate-500">Clear filters or refresh when the next order arrives.</p>
+            </div>
           )}
         </div>
       </div>

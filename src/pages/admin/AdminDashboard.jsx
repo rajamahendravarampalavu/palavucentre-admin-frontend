@@ -79,6 +79,8 @@ const initialSectionLoadingState = {
   orders: false,
   inquiries: false,
   settings: false,
+  print: false,
+  operations: false,
 }
 
 const initialPaginationState = {
@@ -138,17 +140,48 @@ export default function AdminDashboard() {
   const [sectionLoading, setSectionLoading] = useState(initialSectionLoadingState)
   const [loadedSections, setLoadedSections] = useState({})
   const [sectionPagination, setSectionPagination] = useState(initialPaginationState)
+  const [menuSubTab, setMenuSubTab] = useState('items')
   const [menuSearch, setMenuSearch] = useState('')
   const [menuCategoryFilter, setMenuCategoryFilter] = useState('all')
+  const [menuDietFilter, setMenuDietFilter] = useState('all')
+  const [menuAvailabilityFilter, setMenuAvailabilityFilter] = useState('all')
+  const [menuBestsellerFilter, setMenuBestsellerFilter] = useState('all')
+  const [menuImageFilter, setMenuImageFilter] = useState('all')
+  const [menuPriceMin, setMenuPriceMin] = useState('')
+  const [menuPriceMax, setMenuPriceMax] = useState('')
+  const [menuSortBy, setMenuSortBy] = useState('sortOrder')
+  const [selectedMenuIds, setSelectedMenuIds] = useState([])
+  const [bulkCategoryId, setBulkCategoryId] = useState('')
+  const [bulkPriceDelta, setBulkPriceDelta] = useState('')
   const [orderSearch, setOrderSearch] = useState('')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
   const [orderPaymentFilter, setOrderPaymentFilter] = useState('all')
+  const [orderPaymentMethodFilter, setOrderPaymentMethodFilter] = useState('all')
   const [orderDateFilter, setOrderDateFilter] = useState('all')
   const [orderBranchFilter, setOrderBranchFilter] = useState('all')
+  const [orderDateFrom, setOrderDateFrom] = useState('')
+  const [orderDateTo, setOrderDateTo] = useState('')
   const [orderPage, setOrderPage] = useState(1)
   const ORDERS_PER_PAGE = 10
   const [expandedOrderId, setExpandedOrderId] = useState(null)
-  const activeSectionKey = activeTab === 'ordering' ? 'settings' : activeTab
+  const [printJobs, setPrintJobs] = useState([])
+  const [printSettings, setPrintSettings] = useState(null)
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [paymentSearch, setPaymentSearch] = useState('')
+  const [expenseForm, setExpenseForm] = useState({ category: '', amount: '', notes: '', date: toDateInputValue(new Date()) })
+  const [expenses, setExpenses] = useState([])
+  const [confirmDialog, setConfirmDialog] = useState(null)
+  const operationalSections = new Set(['customers', 'payments', 'reports', 'inventory', 'branches', 'staff', 'activity', 'expenses'])
+  const activeSectionKey =
+    activeTab === 'ordering' || activeTab === 'print-settings'
+      ? 'settings'
+      : activeTab === 'orders-print'
+        ? 'print'
+        : activeTab === 'categories'
+          ? 'menu'
+          : operationalSections.has(activeTab)
+            ? 'operations'
+            : activeTab
 
   const showAdminAlert = (message) => {
     setError(message)
@@ -231,19 +264,79 @@ export default function AdminDashboard() {
 
   const filteredMenuItems = useMemo(() => {
     const query = menuSearch.trim().toLowerCase()
+    const minPrice = menuPriceMin === '' ? null : Number(menuPriceMin)
+    const maxPrice = menuPriceMax === '' ? null : Number(menuPriceMax)
 
     return menuItems.filter((item) => {
       const matchesCategory =
         menuCategoryFilter === 'all' || String(item.category?.id || '') === String(menuCategoryFilter)
+      const itemDiet = item.dietaryType || (item.veg ? 'veg' : 'non_veg')
+      const matchesDiet = menuDietFilter === 'all' || itemDiet === menuDietFilter
+      const matchesAvailability =
+        menuAvailabilityFilter === 'all' ||
+        (menuAvailabilityFilter === 'available' && item.available) ||
+        (menuAvailabilityFilter === 'unavailable' && !item.available)
+      const matchesBestseller =
+        menuBestsellerFilter === 'all' ||
+        (menuBestsellerFilter === 'bestseller' && item.bestseller) ||
+        (menuBestsellerFilter === 'not_bestseller' && !item.bestseller)
+      const matchesImage =
+        menuImageFilter === 'all' ||
+        (menuImageFilter === 'missing' && !item.img) ||
+        (menuImageFilter === 'has_image' && Boolean(item.img))
+      const matchesSubTab =
+        menuSubTab === 'items' ||
+        menuSubTab === 'bulk' ||
+        (menuSubTab === 'bestsellers' && item.bestseller) ||
+        (menuSubTab === 'missing-images' && !item.img)
+      const matchesPrice =
+        (minPrice === null || Number(item.price || 0) >= minPrice) &&
+        (maxPrice === null || Number(item.price || 0) <= maxPrice)
       const matchesQuery =
         !query ||
         item.name.toLowerCase().includes(query) ||
         (item.desc || '').toLowerCase().includes(query) ||
-        (item.category?.name || '').toLowerCase().includes(query)
+        (item.category?.name || '').toLowerCase().includes(query) ||
+        (item.tags || []).some((tag) => String(tag).toLowerCase().includes(query))
 
-      return matchesCategory && matchesQuery
+      return (
+        matchesCategory &&
+        matchesDiet &&
+        matchesAvailability &&
+        matchesBestseller &&
+        matchesImage &&
+        matchesSubTab &&
+        matchesPrice &&
+        matchesQuery
+      )
+    }).sort((left, right) => {
+      if (menuSortBy === 'name') {
+        return left.name.localeCompare(right.name)
+      }
+
+      if (menuSortBy === 'price') {
+        return Number(left.price || 0) - Number(right.price || 0)
+      }
+
+      if (menuSortBy === 'newest') {
+        return new Date(right.createdAt || 0) - new Date(left.createdAt || 0)
+      }
+
+      return Number(left.sortOrder || 0) - Number(right.sortOrder || 0)
     })
-  }, [menuCategoryFilter, menuItems, menuSearch])
+  }, [
+    menuAvailabilityFilter,
+    menuBestsellerFilter,
+    menuCategoryFilter,
+    menuDietFilter,
+    menuImageFilter,
+    menuItems,
+    menuPriceMax,
+    menuPriceMin,
+    menuSearch,
+    menuSortBy,
+    menuSubTab,
+  ])
 
   const promoMetrics = useMemo(
     () => [
@@ -266,12 +359,16 @@ export default function AdminDashboard() {
       .filter((order) => {
       const matchesStatus = orderStatusFilter === 'all' || order.orderStatus === orderStatusFilter
       const matchesPayment = orderPaymentFilter === 'all' || order.paymentStatus === orderPaymentFilter
+      const matchesPaymentMethod = orderPaymentMethodFilter === 'all' || order.paymentMethod === orderPaymentMethodFilter
       const matchesBranch = orderBranchFilter === 'all' || (order.storeLocation || '') === orderBranchFilter
       const orderDate = new Date(order.createdAt)
+      const fromDate = orderDateFrom ? new Date(`${orderDateFrom}T00:00:00`) : null
+      const toDate = orderDateTo ? new Date(`${orderDateTo}T23:59:59`) : null
       const matchesDate = orderDateFilter === 'all' ||
         (orderDateFilter === 'today' && orderDate >= startOfToday) ||
         (orderDateFilter === 'week' && orderDate >= startOfWeek) ||
         (orderDateFilter === 'month' && orderDate >= startOfMonth)
+      const matchesDateRange = (!fromDate || orderDate >= fromDate) && (!toDate || orderDate <= toDate)
       const matchesQuery =
         !query ||
         order.orderNumber.toLowerCase().includes(query) ||
@@ -280,23 +377,161 @@ export default function AdminDashboard() {
         (order.account?.email || '').toLowerCase().includes(query) ||
         (order.promo?.code || '').toLowerCase().includes(query)
 
-        return matchesStatus && matchesPayment && matchesBranch && matchesDate && matchesQuery
+        return matchesStatus && matchesPayment && matchesPaymentMethod && matchesBranch && matchesDate && matchesDateRange && matchesQuery
       })
       .sort((firstOrder, secondOrder) => new Date(secondOrder.createdAt) - new Date(firstOrder.createdAt))
-  }, [orderPaymentFilter, orderSearch, orderStatusFilter, orderDateFilter, orderBranchFilter, orders])
+  }, [
+    orderBranchFilter,
+    orderDateFilter,
+    orderDateFrom,
+    orderDateTo,
+    orderPaymentFilter,
+    orderPaymentMethodFilter,
+    orderSearch,
+    orderStatusFilter,
+    orders,
+  ])
 
   const totalOrderPages = Math.ceil(filteredOrders.length / ORDERS_PER_PAGE) || 1
   const paginatedOrders = filteredOrders.slice((orderPage - 1) * ORDERS_PER_PAGE, orderPage * ORDERS_PER_PAGE)
+
+  const allInquiryItems = useMemo(
+    () =>
+      Object.entries(inquiries || {}).flatMap(([type, payload]) =>
+        (payload?.items || []).map((item) => ({ ...item, type })),
+      ),
+    [inquiries],
+  )
+
+  const customerRows = useMemo(() => {
+    const customerMap = new Map()
+
+    orders.forEach((order) => {
+      const key = order.customer?.phone || order.customer?.email || order.account?.email || order.customer?.name || `order-${order.id}`
+      const existing = customerMap.get(key) || {
+        key,
+        name: order.customer?.name || order.account?.name || 'Guest Customer',
+        phone: order.customer?.phone || '',
+        email: order.customer?.email || order.account?.email || '',
+        totalOrders: 0,
+        totalSpend: 0,
+        lastOrderDate: order.createdAt,
+        orders: [],
+      }
+
+      existing.totalOrders += 1
+      existing.totalSpend += Number(order.pricing?.grandTotal || 0)
+      existing.lastOrderDate =
+        new Date(order.createdAt) > new Date(existing.lastOrderDate) ? order.createdAt : existing.lastOrderDate
+      existing.orders.push(order)
+      customerMap.set(key, existing)
+    })
+
+    const query = customerSearch.trim().toLowerCase()
+    return [...customerMap.values()]
+      .filter((customer) =>
+        !query ||
+        customer.name.toLowerCase().includes(query) ||
+        customer.phone.toLowerCase().includes(query) ||
+        customer.email.toLowerCase().includes(query),
+      )
+      .sort((left, right) => new Date(right.lastOrderDate) - new Date(left.lastOrderDate))
+  }, [customerSearch, orders])
+
+  const paymentRows = useMemo(() => {
+    const query = paymentSearch.trim().toLowerCase()
+
+    return orders
+      .map((order) => {
+        const latestPayment = Array.isArray(order.payments) && order.payments.length > 0 ? order.payments[0] : null
+        return {
+          id: latestPayment?.id || `order-${order.id}`,
+          order,
+          customerName: order.customer?.name || 'Guest Customer',
+          method: order.paymentMethod,
+          status: order.paymentStatus,
+          amount: order.pricing?.grandTotal || latestPayment?.amount || 0,
+          providerOrderId: latestPayment?.providerOrderId || '',
+          providerPaymentId: latestPayment?.providerPaymentId || '',
+          webhookVerifiedAt: latestPayment?.webhookVerifiedAt || '',
+          failureReason: latestPayment?.failureReason || '',
+          createdAt: latestPayment?.createdAt || order.createdAt,
+        }
+      })
+      .filter((payment) => {
+        const matchesSearch =
+          !query ||
+          payment.order.orderNumber.toLowerCase().includes(query) ||
+          payment.customerName.toLowerCase().includes(query) ||
+          payment.providerPaymentId.toLowerCase().includes(query) ||
+          payment.providerOrderId.toLowerCase().includes(query)
+        const matchesStatus = orderPaymentFilter === 'all' || payment.status === orderPaymentFilter
+        const matchesMethod = orderPaymentMethodFilter === 'all' || payment.method === orderPaymentMethodFilter
+        return matchesSearch && matchesStatus && matchesMethod
+      })
+      .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+  }, [orderPaymentFilter, orderPaymentMethodFilter, orders, paymentSearch])
+
+  const branchRows = useMemo(() => {
+    const branchMap = new Map([
+      ['kukatpally', { id: 'kukatpally', name: 'Kukatpally', orders: 0, revenue: 0, pending: 0 }],
+      ['bachupally', { id: 'bachupally', name: 'Bachupally', orders: 0, revenue: 0, pending: 0 }],
+    ])
+
+    orders.forEach((order) => {
+      const branchId = order.storeLocation || 'unassigned'
+      const row = branchMap.get(branchId) || { id: branchId, name: toLabelCase(branchId), orders: 0, revenue: 0, pending: 0 }
+      row.orders += 1
+      row.revenue += Number(order.pricing?.grandTotal || 0)
+      if (order.orderStatus === 'pending') {
+        row.pending += 1
+      }
+      branchMap.set(branchId, row)
+    })
+
+    return [...branchMap.values()]
+  }, [orders])
+
+  const activityRows = useMemo(() => {
+    const rows = [
+      ...orders.slice(0, 12).map((order) => ({
+        id: `order-${order.id}`,
+        user: 'System',
+        action: `Order ${toLabelCase(order.orderStatus)}`,
+        entity: order.orderNumber,
+        time: order.updatedAt || order.createdAt,
+        details: `${toLabelCase(order.paymentMethod)} / ${toLabelCase(order.paymentStatus)} / ${formatCurrency(order.pricing?.grandTotal)}`,
+      })),
+      ...menuItems.slice(0, 8).map((item) => ({
+        id: `menu-${item.id}`,
+        user: 'Admin',
+        action: item.available ? 'Menu item available' : 'Menu item unavailable',
+        entity: item.name,
+        time: item.updatedAt || item.createdAt,
+        details: `${item.category?.name || 'No category'} / ${formatCurrency(item.price)}`,
+      })),
+      ...printJobs.slice(0, 8).map((job) => ({
+        id: `print-${job.id}`,
+        user: 'Print station',
+        action: `Print job ${toLabelCase(job.status)}`,
+        entity: job.order?.orderNumber || `Job #${job.id}`,
+        time: job.updatedAt || job.createdAt,
+        details: job.errorMessage || job.printerName || 'No printer message',
+      })),
+    ]
+
+    return rows.sort((left, right) => new Date(right.time) - new Date(left.time)).slice(0, 24)
+  }, [menuItems, orders, printJobs])
 
   const fetchDashboard = async () => {
     const response = await adminApi.getDashboard()
     setDashboard(response.data)
   }
 
-  const fetchMenuData = async ({ page = 1, append = false } = {}) => {
+  const fetchMenuData = async ({ page = 1, limit = 100, append = false } = {}) => {
     const [categoriesResponse, itemsResponse] = await Promise.all([
       adminApi.getMenuCategories(),
-      adminApi.getMenuItems({ page, limit: 20 }),
+      adminApi.getMenuItems({ page, limit }),
     ])
 
     setCategories(categoriesResponse.data.items || [])
@@ -343,8 +578,8 @@ export default function AdminDashboard() {
     }))
   }
 
-  const fetchOrders = async ({ page = 1, append = false } = {}) => {
-    const response = await adminApi.getOrders({ page, limit: 20 })
+  const fetchOrders = async ({ page = 1, limit = 100, append = false } = {}) => {
+    const response = await adminApi.getOrders({ page, limit })
     setOrders((current) => (append ? [...current, ...(response.data.items || [])] : response.data.items || []))
     setSectionPagination((current) => ({
       ...current,
@@ -361,6 +596,16 @@ export default function AdminDashboard() {
     const response = await adminApi.getSettings()
     setSettings(response.data)
     setSettingsForm(buildSettingsForm(response.data))
+  }
+
+  const fetchPrintData = async () => {
+    const [jobsResponse, settingsResponse] = await Promise.all([
+      adminApi.getPrintJobs({ page: 1, limit: 50 }).catch(() => ({ data: { items: [] } })),
+      adminApi.getPrintSettings().catch(() => ({ data: null })),
+    ])
+
+    setPrintJobs(jobsResponse.data?.items || [])
+    setPrintSettings(settingsResponse.data || null)
   }
 
   const loadSection = async (sectionKey, { force = false, silent = false } = {}) => {
@@ -390,6 +635,10 @@ export default function AdminDashboard() {
         await fetchPromoCodes()
       } else if (sectionKey === 'orders') {
         await fetchOrders()
+      } else if (sectionKey === 'print') {
+        await Promise.all([fetchPrintData(), fetchOrders()])
+      } else if (sectionKey === 'operations') {
+        await Promise.all([fetchDashboard(), fetchOrders(), fetchMenuData(), fetchInquiries(), fetchPrintData()])
       } else if (sectionKey === 'inquiries') {
         await fetchInquiries()
       } else if (sectionKey === 'settings') {
@@ -494,6 +743,78 @@ export default function AdminDashboard() {
   const resetOfferForm = () => setOfferForm(initialOfferForm)
   const resetPromoCodeForm = () => setPromoCodeForm(initialPromoCodeForm)
 
+  const addMenuVariant = (label = '') => {
+    setMenuItemForm((current) => ({
+      ...current,
+      variants: [...(current.variants || []), { label, pricePaise: '' }],
+    }))
+  }
+
+  const addSingleFullVariants = () => {
+    setMenuItemForm((current) => {
+      const variants = current.variants || []
+      const labels = new Set(variants.map((variant) => String(variant.label || '').trim().toLowerCase()))
+      const nextVariants = [...variants]
+
+      if (!labels.has('single')) {
+        nextVariants.push({ label: 'Single', pricePaise: '' })
+      }
+
+      if (!labels.has('full')) {
+        nextVariants.push({ label: 'Full', pricePaise: '' })
+      }
+
+      return {
+        ...current,
+        variants: nextVariants,
+      }
+    })
+  }
+
+  const updateMenuVariant = (index, patch) => {
+    setMenuItemForm((current) => ({
+      ...current,
+      variants: (current.variants || []).map((variant, variantIndex) =>
+        variantIndex === index ? { ...variant, ...patch } : variant,
+      ),
+    }))
+  }
+
+  const removeMenuVariant = (index) => {
+    setMenuItemForm((current) => ({
+      ...current,
+      variants: (current.variants || []).filter((_, variantIndex) => variantIndex !== index),
+    }))
+  }
+
+  const buildMenuVariantsPayload = () => {
+    const rows = (menuItemForm.variants || []).map((variant) => ({
+      label: String(variant.label || '').trim(),
+      pricePaise: Number(variant.pricePaise || 0),
+    }))
+    const hasIncompleteRow = rows.some((variant) => {
+      const hasLabel = Boolean(variant.label)
+      const hasPrice = Number.isFinite(variant.pricePaise) && variant.pricePaise > 0
+      return hasLabel !== hasPrice
+    })
+
+    if (hasIncompleteRow) {
+      showAdminAlert('Each size option needs both a label and a price.')
+      return null
+    }
+
+    const variants = rows.filter((variant) => variant.label && variant.pricePaise > 0)
+    const labels = variants.map((variant) => variant.label.toLowerCase())
+    const hasDuplicateLabel = labels.some((label, index) => labels.indexOf(label) !== index)
+
+    if (hasDuplicateLabel) {
+      showAdminAlert('Size option labels must be unique for this dish.')
+      return null
+    }
+
+    return variants
+  }
+
   const prepareNewItemForCategory = (category) => {
     setMenuCategoryFilter(String(category.id))
     setMenuItemForm((current) => ({
@@ -591,6 +912,12 @@ export default function AdminDashboard() {
       return
     }
 
+    const variants = buildMenuVariantsPayload()
+
+    if (!variants) {
+      return
+    }
+
     try {
       setBusyKey('menu-item-form')
       setError('')
@@ -603,8 +930,14 @@ export default function AdminDashboard() {
         description: emptyToUndefined(menuItemForm.description),
         imageUrl: emptyToUndefined(menuItemForm.imageUrl),
         imagePublicId: emptyToUndefined(menuItemForm.imagePublicId),
+        imageThumbnailUrl: emptyToUndefined(menuItemForm.imageThumbnailUrl),
+        imageMediumUrl: emptyToUndefined(menuItemForm.imageMediumUrl),
+        imageLargeUrl: emptyToUndefined(menuItemForm.imageLargeUrl),
+        imageAlt: emptyToUndefined(menuItemForm.imageAlt) || emptyToUndefined(menuItemForm.name),
+        imageSize: menuItemForm.imageSize ? Number(menuItemForm.imageSize) : undefined,
+        imageMimeType: emptyToUndefined(menuItemForm.imageMimeType),
         price: Number(menuItemForm.price),
-        variants: (menuItemForm.variants || []).filter((v) => v.label && v.pricePaise > 0),
+        variants,
         isVeg: menuItemForm.isVeg,
         isBestseller: menuItemForm.isBestseller,
         isAvailable: menuItemForm.isAvailable,
@@ -1377,6 +1710,11 @@ export default function AdminDashboard() {
                           ...current,
                           imageUrl: event.target.value,
                           imagePublicId: '',
+                          imageThumbnailUrl: '',
+                          imageMediumUrl: '',
+                          imageLargeUrl: '',
+                          imageSize: '',
+                          imageMimeType: '',
                         }))
                       }
                       onFileSelect={(file) =>
@@ -1385,11 +1723,17 @@ export default function AdminDashboard() {
                           folder: 'menu',
                           busyId: 'upload-menu-item-image',
                           successMessage: 'Dish image uploaded',
-                          onSuccess: ({ url, publicId }) =>
+                          onSuccess: ({ url, publicId, thumbnailUrl, mediumUrl, largeUrl, size, mimeType }) =>
                             setMenuItemForm((current) => ({
                               ...current,
-                              imageUrl: url,
+                              imageUrl: mediumUrl || largeUrl || url,
                               imagePublicId: publicId,
+                              imageThumbnailUrl: thumbnailUrl || '',
+                              imageMediumUrl: mediumUrl || '',
+                              imageLargeUrl: largeUrl || url || '',
+                              imageAlt: current.imageAlt || current.name,
+                              imageSize: size ? String(size) : '',
+                              imageMimeType: mimeType || '',
                             })),
                         })
                       }
@@ -1411,32 +1755,66 @@ export default function AdminDashboard() {
                   </Field>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[1.6px] text-slate-500">Size Variants (Half/Full)</p>
-                        <p className="mt-1 text-xs text-slate-500">Price in paise: 18000 = ₹180</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[1.6px] text-slate-500">Size Options</p>
+                        <p className="mt-1 text-xs text-slate-500">Add Single and Full prices in INR for the same dish.</p>
                       </div>
-                      <button type="button" onClick={() => setMenuItemForm((c) => ({ ...c, variants: [...(c.variants || []), { label: '', pricePaise: '' }] }))}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">+ Add</button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={addSingleFullVariants}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Single/Full
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addMenuVariant()}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          + Custom
+                        </button>
+                      </div>
                     </div>
-                    {(!menuItemForm.variants || menuItemForm.variants.length === 0) && <p className="text-xs text-slate-400 italic">No variants — uses base price only.</p>}
+                    {(!menuItemForm.variants || menuItemForm.variants.length === 0) && (
+                      <p className="text-xs italic text-slate-400">No size options. Customers will see the base price only.</p>
+                    )}
                     <div className="space-y-2">
                       {(menuItemForm.variants || []).map((v, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <TextInput placeholder="Half / Full" value={v.label} onChange={(e) => setMenuItemForm((c) => ({ ...c, variants: c.variants.map((x, i) => i === idx ? { ...x, label: e.target.value } : x) }))} />
-                          <TextInput type="number" placeholder="Paise" value={v.pricePaise} onChange={(e) => setMenuItemForm((c) => ({ ...c, variants: c.variants.map((x, i) => i === idx ? { ...x, pricePaise: Number(e.target.value) || '' } : x) }))} />
-                          <span className="text-xs text-slate-400 w-14 shrink-0">{v.pricePaise ? `₹${Math.round(v.pricePaise / 100)}` : ''}</span>
-                          <button type="button" onClick={() => setMenuItemForm((c) => ({ ...c, variants: c.variants.filter((_, i) => i !== idx) }))}
-                            className="rounded-full border border-red-200 p-1.5 text-red-500 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <div key={`${v.label || 'variant'}-${idx}`} className="grid gap-2 md:grid-cols-[1fr_180px_auto] md:items-center">
+                          <TextInput
+                            placeholder="Single / Full"
+                            value={v.label}
+                            onChange={(event) => updateMenuVariant(idx, { label: event.target.value })}
+                          />
+                          <TextInput
+                            type="number"
+                            min="1"
+                            step="0.01"
+                            placeholder="Price (INR)"
+                            value={v.pricePaise ? Number(v.pricePaise) / 100 : ''}
+                            onChange={(event) =>
+                              updateMenuVariant(idx, {
+                                pricePaise: Math.round(Number(event.target.value) * 100) || '',
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeMenuVariant(idx)}
+                            className="flex h-10 w-10 items-center justify-center rounded-full border border-red-200 text-red-500 hover:bg-red-50"
+                            aria-label="Remove size option"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  {/* Variant Editor — hidden until customer frontend supports it */}
-
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <Field label="Price (INR)">
+                    <Field label="Base Price (INR)" hint="Used when no size option is selected or configured.">
                       <TextInput
                         required
                         type="number"
@@ -1550,6 +1928,18 @@ export default function AdminDashboard() {
                           <div>
                             <p className="font-semibold text-slate-900">{item.name}</p>
                             <p className="mt-1 text-sm font-semibold text-slate-900">{formatCurrency(item.price)}</p>
+                            {item.variants?.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {item.variants.map((variant) => (
+                                  <span
+                                    key={`${item.id}-${variant.label}`}
+                                    className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600"
+                                  >
+                                    {variant.label}: {formatCurrency(variant.price)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             <p className="mt-1 text-sm text-slate-600">{item.desc}</p>
                             <p className="mt-2 text-xs text-slate-500">
                               {item.category?.name} | {item.veg ? 'veg' : 'non-veg'} |{' '}
@@ -1593,8 +1983,14 @@ export default function AdminDashboard() {
                                 name: item.name,
                               shortDescription: item.desc || '',
                               description: item.description || '',
-                              imageUrl: item.img || '',
+                              imageUrl: item.imageMediumUrl || item.imageUrl || item.img || '',
                               imagePublicId: '',
+                              imageThumbnailUrl: item.imageThumbnailUrl || '',
+                              imageMediumUrl: item.imageMediumUrl || '',
+                              imageLargeUrl: item.imageLargeUrl || '',
+                              imageAlt: item.imageAlt || item.name,
+                              imageSize: item.imageSize ? String(item.imageSize) : '',
+                              imageMimeType: item.imageMimeType || '',
                               price: String(item.price),
                               variants: item.variants || [],
                               isVeg: item.veg,

@@ -15,6 +15,7 @@ export default function AdminApp() {
         <Route path={ADMIN_LOGIN_PATH} element={<AdminLogin />} />
         <Route path={ADMIN_DASHBOARD_PATH} element={<AdminDashboard />} />
         <Route path="/admin/kitchen" element={<KitchenDisplay />} />
+        <Route path="/admin/print-station" element={<KitchenDisplay />} />
         <Route path="*" element={<Navigate to={ADMIN_LOGIN_PATH} replace />} />
       </Routes>
     </BrowserRouter>

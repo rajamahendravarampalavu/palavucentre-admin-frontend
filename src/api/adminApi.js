@@ -59,6 +59,13 @@ export const adminApi = {
   getOrders: (params = defaultPageParams) => apiRequest(`/admin/orders${buildQueryString(params)}`),
   updateOrder: (id, body) => apiRequest(`/admin/orders/${id}`, { method: 'PATCH', body }),
 
+  getPrintJobs: (params = defaultPageParams) => apiRequest(`/admin/print-jobs${buildQueryString(params)}`),
+  retryPrintJob: (id) => apiRequest(`/admin/print-jobs/${id}/retry`, { method: 'POST' }),
+  markPrintJobPrinted: (id) => apiRequest(`/admin/print-jobs/${id}/mark-printed`, { method: 'POST' }),
+  failPrintJob: (id, body) => apiRequest(`/admin/print-jobs/${id}/fail`, { method: 'POST', body }),
+  getPrintSettings: () => apiRequest('/admin/print-settings'),
+  updatePrintSettings: (body) => apiRequest('/admin/print-settings', { method: 'PUT', body }),
+
   getInquiries: (params = {}) => apiRequest(`/admin/inquiries${buildQueryString({ ...defaultPageParams, ...params })}`),
   updateInquiry: (type, id, body) => apiRequest(`/admin/inquiries/${type}/${id}`, { method: 'PATCH', body }),
   deleteInquiry: (uid) => apiRequest(`/admin/inquiries/${encodeURIComponent(uid)}`, { method: 'DELETE' }),

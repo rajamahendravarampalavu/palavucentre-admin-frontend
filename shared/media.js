@@ -117,6 +117,10 @@ function normalizeMenuItem(item, options) {
   return {
     ...item,
     img: sanitizeAssetUrl(item.img, options),
+    imageUrl: sanitizeAssetUrl(item.imageUrl, options),
+    imageThumbnailUrl: sanitizeAssetUrl(item.imageThumbnailUrl, options),
+    imageMediumUrl: sanitizeAssetUrl(item.imageMediumUrl, options),
+    imageLargeUrl: sanitizeAssetUrl(item.imageLargeUrl, options),
   }
 }
 
