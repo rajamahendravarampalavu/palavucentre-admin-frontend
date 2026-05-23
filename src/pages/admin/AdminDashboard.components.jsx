@@ -188,7 +188,7 @@ export function MetricTile({ label, value, hint }) {
   return (
     <div className="flex h-full min-w-0 flex-col justify-between overflow-hidden rounded-[18px] border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <p className="break-words text-[11px] font-semibold uppercase tracking-[1.4px] text-slate-500">{label}</p>
-      <p className="mt-3 min-w-0 break-words text-2xl font-semibold leading-tight text-slate-950 md:text-[28px]">{value}</p>
+      <p className="mt-3 min-w-0 truncate text-xl font-semibold leading-tight text-slate-950 sm:text-2xl md:text-[28px]">{value}</p>
       {hint && <p className="mt-2 break-words text-xs text-slate-500">{hint}</p>}
     </div>
   )

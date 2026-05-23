@@ -3249,7 +3249,7 @@ export default function AdminDashboard() {
                         <StatusBadge value={printStationStatus.some((station) => station.branchId === branch.id) ? 'printed' : 'not_printed'} kind="print" />
                       </div>
                     </div>
-                    <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-3">
+                    <div className="mt-4 grid min-w-0 grid-cols-3 gap-2 sm:gap-3">
                       <MetricTile label="Orders" value={branch.orders} hint="Loaded" />
                       <MetricTile label="Pending" value={branch.pending} hint="Needs action" />
                       <MetricTile label="Revenue" value={formatCurrency(branch.revenue)} hint="Loaded" />
