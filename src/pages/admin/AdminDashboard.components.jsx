@@ -186,10 +186,10 @@ export function ImageUploadField({
 
 export function MetricTile({ label, value, hint }) {
   return (
-    <div className="flex h-full min-w-0 flex-col justify-between overflow-hidden rounded-[18px] border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <p className="break-words text-[11px] font-semibold uppercase tracking-[1.4px] text-slate-500">{label}</p>
-      <p className="mt-3 min-w-0 truncate text-xl font-semibold leading-tight text-slate-950 sm:text-2xl md:text-[28px]">{value}</p>
-      {hint && <p className="mt-2 break-words text-xs text-slate-500">{hint}</p>}
+    <div className="flex h-full min-w-0 flex-col justify-between overflow-hidden rounded-[18px] border border-slate-200 bg-white px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:px-4 sm:py-4">
+      <p className="break-words text-[10px] font-semibold uppercase tracking-[1.4px] text-slate-500 sm:text-[11px]">{label}</p>
+      <p className="mt-2 min-w-0 truncate text-lg font-semibold leading-tight text-slate-950 sm:mt-3 sm:text-xl">{value}</p>
+      {hint && <p className="mt-1.5 break-words text-[11px] text-slate-500 sm:mt-2 sm:text-xs">{hint}</p>}
     </div>
   )
 }
