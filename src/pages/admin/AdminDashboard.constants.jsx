@@ -55,24 +55,24 @@ export const tabs = [
   },
   {
     id: 'orders-print',
-    label: 'Orders & Print',
+    label: 'Print Monitor',
     icon: Printer,
     group: 'Dashboard',
-    description: 'Monitor print jobs, open the browser print station, and retry queued bills.',
+    description: 'Monitor orders and print jobs, send bills to the print station, and retry queued bills.',
   },
   {
     id: 'menu',
     label: 'Menu',
     icon: MenuSquare,
     group: 'Restaurant',
-    description: 'Organize categories, dishes, availability, images, and pricing from one section.',
+    description: 'Manage dishes, images, pricing, availability, best sellers, and bulk item updates.',
   },
   {
     id: 'categories',
     label: 'Categories',
     icon: Store,
     group: 'Restaurant',
-    description: 'Maintain active menu groups, icons, display order, and category health.',
+    description: 'Maintain menu category names, icons, display order, active state, and item counts.',
   },
   {
     id: 'gallery',

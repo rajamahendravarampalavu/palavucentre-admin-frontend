@@ -37,6 +37,24 @@ function toLabel(value) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
+function normalizeBranchId(value) {
+  return String(value || DEFAULT_BRANCH_ID).trim().toLowerCase() || DEFAULT_BRANCH_ID
+}
+
+function getPrintStatusLabel(value) {
+  const labels = {
+    not_printed: 'Not Printed',
+    pending: 'Queued',
+    queued: 'Queued',
+    sent: 'Queued',
+    printing: 'Queued',
+    printed: 'Printed',
+    failed: 'Failed',
+  }
+
+  return labels[value] || toLabel(value)
+}
+
 function badgeClass(value, type = 'order') {
   const maps = {
     order: {
@@ -271,13 +289,15 @@ export default function KitchenDisplay() {
   const printedJobIds = useRef(new Set())
   const activePrintJobRef = useRef(null)
 
-  const branchId = settingsForm?.branchId || settings?.branchId || DEFAULT_BRANCH_ID
+  const configuredBranchId = settingsForm?.branchId || settings?.branchId
+  const branchId = configuredBranchId || DEFAULT_BRANCH_ID
+  const hasConfiguredBranch = Boolean(configuredBranchId)
   const autoPrintEnabled = settings?.autoPrintEnabled !== false
   const soundEnabled = settings?.soundEnabled !== false
 
   const pendingPrintJobs = useMemo(
-    () => printJobs.filter((job) => ['pending', 'sent', 'failed'].includes(job.status)),
-    [printJobs],
+    () => printJobs.filter((job) => normalizeBranchId(job.branchId) === normalizeBranchId(branchId) && ['pending', 'sent', 'failed'].includes(job.status)),
+    [branchId, printJobs],
   )
 
   const refreshOrders = useCallback(async () => {
@@ -287,12 +307,13 @@ export default function KitchenDisplay() {
   }, [])
 
   const refreshPrintJobs = useCallback(async () => {
-    const response = await adminApi.getPrintJobs({ page: 1, limit: 50 })
+    const response = await adminApi.getPrintJobs({ page: 1, limit: 50, branchId })
     const items = response.data?.items || []
     setPrintJobs(items)
     setStationStatuses(response.data?.stationStatus || [])
+    setLastRefreshedAt(new Date())
     return items
-  }, [])
+  }, [branchId])
 
   const refreshSettings = useCallback(async () => {
     const response = await adminApi.getPrintSettings()
@@ -314,12 +335,14 @@ export default function KitchenDisplay() {
 
   const enqueuePrintJob = useCallback((job) => {
     if (!job?.id || printedJobIds.current.has(job.id)) return
+    if (normalizeBranchId(job.branchId) !== normalizeBranchId(branchId)) return
+    if (!['pending', 'sent'].includes(job.status)) return
 
     setPrintQueue((current) => {
       if (current.some((item) => item.id === job.id)) return current
       return [...current, job]
     })
-  }, [])
+  }, [branchId])
 
   const markPrinted = useCallback(async (job) => {
     if (!job?.id) {
@@ -386,6 +409,7 @@ export default function KitchenDisplay() {
     })
 
     socket.on('new_print_job', (job) => {
+      if (normalizeBranchId(job?.branchId) !== normalizeBranchId(branchId)) return
       if (soundEnabled) playNotificationSound()
       showBrowserNotification('New bill ready', `Order ${job?.payload?.order?.orderNumber || job?.order?.orderNumber || ''}`)
       enqueuePrintJob(job)
@@ -394,6 +418,7 @@ export default function KitchenDisplay() {
     })
 
     socket.on('new-order', (data) => {
+      if (data?.branchId && normalizeBranchId(data.branchId) !== normalizeBranchId(branchId)) return
       if (soundEnabled) playNotificationSound()
       showBrowserNotification('New order', `Order ${data?.orderNumber || ''} received`)
       refreshOrders().catch(() => null)
@@ -454,10 +479,14 @@ export default function KitchenDisplay() {
     event.preventDefault()
     setBusyKey('settings')
     try {
+      setStationError('')
       const response = await adminApi.updatePrintSettings(settingsForm)
       setSettings(response.data)
       setSettingsForm(response.data)
       socketRef.current?.emit('join-print-station', { branchId: response.data?.branchId || DEFAULT_BRANCH_ID, token: PRINT_AGENT_TOKEN })
+      await refreshPrintJobs()
+    } catch (error) {
+      setStationError(error?.message || 'Could not save print settings')
     } finally {
       setBusyKey('')
     }
@@ -473,15 +502,76 @@ export default function KitchenDisplay() {
     }
   }
 
-  const retryJob = async (job) => {
-    setBusyKey(`print-${job.id}`)
+  const queueOrderPrintJob = async (order, kind = 'original') => {
+    setBusyKey(`order-print-${order.id}-${kind}`)
     try {
-      const response = await adminApi.retryPrintJob(job.id)
+      setStationError('')
+      const response = await adminApi.createOrderPrintJob(order.id, { kind })
       enqueuePrintJob(response.data)
-      await refreshPrintJobs()
+      await Promise.all([refreshOrders(), refreshPrintJobs()])
+    } catch (error) {
+      setStationError(error?.message || 'Could not queue print job')
     } finally {
       setBusyKey('')
     }
+  }
+
+  const retryJob = async (job) => {
+    setBusyKey(`print-${job.id}`)
+    try {
+      setStationError('')
+      const response = await adminApi.retryPrintJob(job.id)
+      enqueuePrintJob(response.data)
+      await refreshPrintJobs()
+    } catch (error) {
+      setStationError(error?.message || 'Could not retry print job')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const runTestPrint = () => {
+    setActivePrintJob({
+      id: null,
+      payload: {
+        restaurant: {
+          name: settings?.restaurantName || 'PalavuCentre',
+          phone: settings?.phone || '9966655997',
+        },
+        branch: {
+          id: branchId,
+          name: toLabel(branchId),
+          address: settings?.branchAddress || 'Print station test',
+        },
+        order: {
+          orderNumber: 'TEST PRINT',
+          createdAt: new Date().toISOString(),
+          notes: 'Printer test receipt',
+        },
+        customer: {
+          name: 'Print Station',
+          phone: '',
+        },
+        payment: {
+          method: 'test',
+          status: 'paid',
+        },
+        items: [
+          { name: 'Test Item', quantity: 1, total: 1 },
+        ],
+        totals: {
+          subtotal: 1,
+          discount: 0,
+          tax: 0,
+          grandTotal: 1,
+        },
+        print: {
+          paperSize: settings?.paperSize || '80mm',
+          footerMessage: settings?.footerMessage || 'Print station test successful',
+          copies: 1,
+        },
+      },
+    })
   }
 
   return (
@@ -489,9 +579,12 @@ export default function KitchenDisplay() {
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[22px] font-semibold text-slate-950">Orders & Print</h1>
+            <div>
+              <h1 className="text-[22px] font-semibold text-slate-950">Print Station</h1>
+              <p className="mt-1 text-xs text-slate-500">Keep this page open on the browser connected to the receipt printer.</p>
+            </div>
             <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${connected ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>
-              {connected ? 'Live' : 'Offline'}
+              {connected ? 'Online' : 'Offline'}
             </span>
             <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${stationJoined ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
               {stationJoined ? `Print station: ${branchId}` : 'Print station not joined'}
@@ -499,17 +592,35 @@ export default function KitchenDisplay() {
             <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${autoPrintEnabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
               Auto print {autoPrintEnabled ? 'on' : 'off'}
             </span>
+            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${soundEnabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+              Sound {soundEnabled ? 'on' : 'off'}
+            </span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
+              {settings?.paperSize || '80mm'}
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {lastRefreshedAt && <span className="text-xs text-slate-500">Last refreshed {formatTime(lastRefreshedAt)}</span>}
             <button onClick={refreshAll} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
               Refresh
             </button>
-            <button onClick={() => playNotificationSound()} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800">
+            <button onClick={runTestPrint} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Test Print
+            </button>
+            <button onClick={() => {
+              if (!playNotificationSound()) {
+                setStationError('Browser blocked sound. Click anywhere on this page, then test sound again')
+              }
+            }} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800">
               Test Sound
             </button>
           </div>
         </div>
+        {!hasConfiguredBranch && (
+          <div className="mx-auto mt-3 max-w-7xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            No branch is saved for this print station yet. Using {toLabel(branchId)} until settings are saved.
+          </div>
+        )}
         {stationError && (
           <div className="mx-auto mt-3 max-w-7xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {stationError}. New bills will stay queued until the print station joins successfully.
@@ -532,8 +643,8 @@ export default function KitchenDisplay() {
             </div>
             <div className="rounded-[18px] border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <p className="text-[11px] font-semibold uppercase tracking-[1.6px] text-slate-500">Station Status</p>
-              <p className="mt-3 text-3xl font-semibold text-slate-950">{stationStatuses.length}</p>
-              <p className="mt-1 text-xs text-slate-500">Online print stations</p>
+              <p className="mt-3 text-3xl font-semibold text-slate-950">{stationJoined ? 'Online' : 'Offline'}</p>
+              <p className="mt-1 text-xs text-slate-500">{toLabel(branchId)} / {settings?.paperSize || '80mm'} / sound {soundEnabled ? 'on' : 'off'} / stations {stationStatuses.length}</p>
             </div>
           </div>
 
@@ -558,7 +669,7 @@ export default function KitchenDisplay() {
                     <div className="flex flex-wrap justify-end gap-1.5">
                       <span className={`rounded-lg border px-2.5 py-1 text-[10px] font-semibold uppercase ${badgeClass(order.orderStatus, 'order')}`}>{toLabel(order.orderStatus)}</span>
                       <span className={`rounded-lg border px-2.5 py-1 text-[10px] font-semibold uppercase ${badgeClass(order.paymentStatus, 'payment')}`}>{toLabel(order.paymentStatus)}</span>
-                      <span className={`rounded-lg border px-2.5 py-1 text-[10px] font-semibold uppercase ${badgeClass(order.printStatus, 'print')}`}>{toLabel(order.printStatus || 'not_printed')}</span>
+                      <span className={`rounded-lg border px-2.5 py-1 text-[10px] font-semibold uppercase ${badgeClass(order.printStatus, 'print')}`}>{getPrintStatusLabel(order.printStatus || 'not_printed')}</span>
                     </div>
                   </div>
 
@@ -600,10 +711,17 @@ export default function KitchenDisplay() {
                       </button>
                     ))}
                     <button
-                      onClick={() => setActivePrintJob(orderToPrintJob(order))}
+                      disabled={busyKey === `order-print-${order.id}-original`}
+                      onClick={() => queueOrderPrintJob(order, 'original')}
                       className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-800"
                     >
-                      Print Bill
+                      {busyKey === `order-print-${order.id}-original` ? 'Sending...' : 'Send to Queue'}
+                    </button>
+                    <button
+                      onClick={() => setActivePrintJob(orderToPrintJob(order))}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Browser Print
                     </button>
                   </div>
                 </article>
@@ -712,15 +830,19 @@ export default function KitchenDisplay() {
                       <p className="text-sm font-semibold text-slate-950">{job.payload?.order?.orderNumber || job.order?.orderNumber}</p>
                       <p className="mt-1 text-xs text-slate-500">{toLabel(job.branchId || 'default')} - attempts {job.attempts || 0}</p>
                     </div>
-                    <span className={`rounded-lg border px-2 py-1 text-[10px] font-semibold uppercase ${badgeClass(job.status, 'print')}`}>{toLabel(job.status)}</span>
+                    <span className={`rounded-lg border px-2 py-1 text-[10px] font-semibold uppercase ${badgeClass(job.status, 'print')}`}>{getPrintStatusLabel(job.status)}</span>
                   </div>
                   {job.errorMessage && <p className="mt-2 text-xs text-red-700">{job.errorMessage}</p>}
                   <div className="mt-3 flex gap-2">
-                    <button onClick={() => enqueuePrintJob(job)} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white">
+                    <button
+                      disabled={job.status === 'failed'}
+                      onClick={() => enqueuePrintJob(job)}
+                      className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
                       Print
                     </button>
                     <button
-                      disabled={busyKey === `print-${job.id}`}
+                      disabled={busyKey === `print-${job.id}` || !['pending', 'failed'].includes(job.status)}
                       onClick={() => retryJob(job)}
                       className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-50"
                     >

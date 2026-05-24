@@ -58,6 +58,7 @@ export const adminApi = {
 
   getOrders: (params = defaultPageParams) => apiRequest(`/admin/orders${buildQueryString(params)}`),
   updateOrder: (id, body) => apiRequest(`/admin/orders/${id}`, { method: 'PATCH', body }),
+  createOrderPrintJob: (id, body = {}) => apiRequest(`/admin/orders/${id}/print-job`, { method: 'POST', body }),
 
   getPrintJobs: (params = defaultPageParams) => apiRequest(`/admin/print-jobs${buildQueryString(params)}`),
   retryPrintJob: (id) => apiRequest(`/admin/print-jobs/${id}/retry`, { method: 'POST' }),

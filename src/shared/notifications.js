@@ -36,8 +36,9 @@ export function playNotificationSound() {
     playTone(ctx, 880, now + 1.2, 0.2, 0.5)
     playTone(ctx, 1100, now + 1.45, 0.2, 0.5)
     playTone(ctx, 1320, now + 1.7, 0.3, 0.6)
-  } catch (e) {
-    // silent fail
+    return true
+  } catch {
+    return false
   }
 }
 

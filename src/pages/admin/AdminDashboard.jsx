@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { io } from 'socket.io-client'
 import {
   BadgePercent,
   ChevronDown,
@@ -21,8 +22,10 @@ import {
 import { useNavigate } from 'react-router-dom'
 
 import { adminApi } from '../../api/adminApi'
+import { API_BASE_URL } from '../../shared/api/api-config'
 import { formatCurrency, formatDate, formatDateTime } from '../../shared/formatters.js'
 import { ADMIN_LOGIN_PATH, PUBLIC_SITE_URL } from '../../lib/admin-routing'
+import { playNotificationSound, requestNotificationPermission, showBrowserNotification } from '../../shared/notifications'
 import {
   DEFAULT_MENU_CATEGORY_ICON,
   getMenuCategoryIcon,
@@ -105,6 +108,13 @@ function SectionSkeleton({ cards = 3 }) {
   )
 }
 
+const WS_URL = (() => {
+  if (API_BASE_URL.startsWith('http')) return API_BASE_URL.replace(/\/api\/?$/, '')
+  return window.location.origin
+})()
+
+const ACKNOWLEDGED_ORDER_STORAGE_KEY = 'palavu-admin-acknowledged-orders'
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -147,10 +157,11 @@ function EmptyPanel({ title, description }) {
   )
 }
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ initialTab = 'overview' }) {
   const navigate = useNavigate()
   const confirmResolverRef = useRef(null)
-  const [activeTab, setActiveTab] = useState('overview')
+  const acknowledgedOrderKeysRef = useRef(new Set())
+  const [activeTab, setActiveTab] = useState(initialTab)
   const [admin, setAdmin] = useState(null)
   const [dashboard, setDashboard] = useState(null)
   const [categories, setCategories] = useState([])
@@ -196,6 +207,7 @@ export default function AdminDashboard() {
   const [selectedMenuIds, setSelectedMenuIds] = useState([])
   const [bulkCategoryId, setBulkCategoryId] = useState('')
   const [bulkPriceDelta, setBulkPriceDelta] = useState('')
+  const [bulkPriceMode, setBulkPriceMode] = useState('set')
   const [orderSearch, setOrderSearch] = useState('')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
   const [orderPaymentFilter, setOrderPaymentFilter] = useState('all')
@@ -215,6 +227,8 @@ export default function AdminDashboard() {
   const [expenseForm, setExpenseForm] = useState({ category: '', amount: '', notes: '', date: toDateInputValue(new Date()) })
   const [expenses, setExpenses] = useState([])
   const [confirmDialog, setConfirmDialog] = useState(null)
+  const [soundAlertOrder, setSoundAlertOrder] = useState('')
+  const [soundBlocked, setSoundBlocked] = useState(false)
   const operationalSections = new Set(['customers', 'payments', 'reports', 'inventory', 'branches', 'staff', 'activity', 'expenses'])
   const activeSectionKey =
     activeTab === 'ordering'
@@ -230,6 +244,45 @@ export default function AdminDashboard() {
   const showAdminAlert = (message) => {
     setError(message)
     setNotice('')
+  }
+
+  const persistAcknowledgedOrders = () => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    try {
+      const values = [...acknowledgedOrderKeysRef.current].slice(-250)
+      window.localStorage.setItem(ACKNOWLEDGED_ORDER_STORAGE_KEY, JSON.stringify(values))
+    } catch {
+      // Ignore storage failures; sound acknowledgement still works for this session.
+    }
+  }
+
+  const acknowledgeOrderAlert = (orderNumber = soundAlertOrder) => {
+    if (orderNumber) {
+      acknowledgedOrderKeysRef.current.add(String(orderNumber))
+      persistAcknowledgedOrders()
+    }
+
+    setSoundAlertOrder('')
+    setSoundBlocked(false)
+  }
+
+  const triggerNewOrderAlert = (orderNumber) => {
+    const orderKey = String(orderNumber || '').trim()
+
+    if (!orderKey || acknowledgedOrderKeysRef.current.has(orderKey)) {
+      return
+    }
+
+    setSoundAlertOrder(orderKey)
+    setSoundBlocked(false)
+    showBrowserNotification('New order', `Order ${orderKey} received`)
+
+    if (printSettings?.soundEnabled !== false && !playNotificationSound()) {
+      setSoundBlocked(true)
+    }
   }
 
   const requestConfirmation = ({ title = 'Confirm action', message, actionLabel = 'Confirm', danger = true }) =>
@@ -311,6 +364,15 @@ export default function AdminDashboard() {
       { label: 'Missing Image', value: menuItems.filter((item) => !item.img).length, hint: 'Needs photo URL' },
     ],
     [categories, menuItems],
+  )
+  const categoryMetrics = useMemo(
+    () => [
+      { label: 'Categories', value: categories.length, hint: 'Total groups' },
+      { label: 'Active', value: categories.filter((category) => category.isActive).length, hint: 'Shown on menu' },
+      { label: 'Inactive', value: categories.filter((category) => !category.isActive).length, hint: 'Hidden groups' },
+      { label: 'Assigned Items', value: categories.reduce((total, category) => total + Number(category.itemCount || 0), 0), hint: 'Dishes in groups' },
+    ],
+    [categories],
   )
   const SelectedCategoryIcon = getMenuCategoryIcon(categoryForm.icon)
   const selectedCategoryIconLabel = getMenuCategoryIconLabel(categoryForm.icon)
@@ -702,6 +764,47 @@ export default function AdminDashboard() {
     }
   }
   const loadSectionEvent = useEffectEvent(loadSection)
+  const handleRealtimeNewOrder = useEffectEvent((data) => {
+    triggerNewOrderAlert(data?.orderNumber)
+    fetchOrders({ page: 1, limit: 100 }).catch(() => null)
+    fetchDashboard().catch(() => null)
+  })
+  const handleRealtimeRefresh = useEffectEvent(() => {
+    fetchOrders({ page: 1, limit: 100 }).catch(() => null)
+    fetchPrintData().catch(() => null)
+    fetchDashboard().catch(() => null)
+  })
+
+  useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    try {
+      const storedOrderKeys = JSON.parse(window.localStorage.getItem(ACKNOWLEDGED_ORDER_STORAGE_KEY) || '[]')
+      acknowledgedOrderKeysRef.current = new Set(Array.isArray(storedOrderKeys) ? storedOrderKeys.map(String) : [])
+    } catch {
+      acknowledgedOrderKeysRef.current = new Set()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!soundAlertOrder || printSettings?.soundEnabled === false) {
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      if (!playNotificationSound()) {
+        setSoundBlocked(true)
+      }
+    }, 10000)
+
+    return () => window.clearInterval(timer)
+  }, [printSettings?.soundEnabled, soundAlertOrder])
 
   useEffect(() => {
     let isMounted = true
@@ -718,6 +821,11 @@ export default function AdminDashboard() {
 
         setAdmin(sessionResponse.data.admin)
         await loadSectionEvent('overview', { force: true, silent: true })
+        adminApi.getPrintSettings().then((response) => {
+          if (isMounted) {
+            setPrintSettings(response.data)
+          }
+        }).catch(() => null)
       } catch (requestError) {
         if (!isMounted) {
           return
@@ -752,10 +860,41 @@ export default function AdminDashboard() {
   }, [activeSectionKey, admin])
 
   useEffect(() => {
+    if (!admin || typeof window === 'undefined') {
+      return undefined
+    }
+
+    const socket = io(WS_URL, { path: '/ws/', transports: ['websocket', 'polling'], withCredentials: true })
+
+    socket.on('connect', () => {
+      socket.emit('join-admin')
+    })
+
+    socket.on('new-order', handleRealtimeNewOrder)
+    socket.on('payment-verified', handleRealtimeRefresh)
+    socket.on('payment-webhook', handleRealtimeRefresh)
+    socket.on('order-updated', handleRealtimeRefresh)
+    socket.on('print-job-created', handleRealtimeRefresh)
+    socket.on('print-job-queued', handleRealtimeRefresh)
+    socket.on('print-job-sent', handleRealtimeRefresh)
+    socket.on('print-job-printed', handleRealtimeRefresh)
+    socket.on('print-job-failed', handleRealtimeRefresh)
+    socket.on('print-station-status', (payload) => {
+      setPrintStationStatus(Array.isArray(payload) ? payload : [])
+    })
+
+    return () => {
+      socket.disconnect()
+    }
+  }, [admin])
+
+  useEffect(() => {
     if (activeTab === 'categories') {
       setMenuSubTab('categories')
+    } else if (activeTab === 'menu' && menuSubTab === 'categories') {
+      setMenuSubTab('items')
     }
-  }, [activeTab])
+  }, [activeTab, menuSubTab])
 
   const refreshActiveSection = () => loadSection(activeSectionKey, { force: true })
 
@@ -872,18 +1011,6 @@ export default function AdminDashboard() {
     }
 
     return variants
-  }
-
-  const prepareNewItemForCategory = (category) => {
-    setMenuCategoryFilter(String(category.id))
-    setMenuItemForm((current) => ({
-      ...initialMenuItemForm,
-      categoryId: String(category.id),
-      isVeg: current.isVeg,
-      dietaryType: current.dietaryType || (current.isVeg ? 'veg' : 'non_veg'),
-      spiceLevel: current.spiceLevel || 'medium',
-      isAvailable: true,
-    }))
   }
 
   const handleLogout = async () => {
@@ -1292,6 +1419,9 @@ export default function AdminDashboard() {
   }
 
   const updateOrderField = async (id, payload) => {
+    const currentOrder = orders.find((order) => String(order.id) === String(id))
+    acknowledgeOrderAlert(currentOrder?.orderNumber)
+
     if (payload.orderStatus === 'cancelled') {
       const confirmed = await requestConfirmation({
         title: 'Cancel order',
@@ -1362,17 +1492,17 @@ export default function AdminDashboard() {
     setNotice('Dish copied into the form. Review the name and save to create it.')
   }
 
-  const selectedMenuItems = menuItems.filter((item) => selectedMenuIds.includes(item.id))
+  const selectedMenuItems = filteredMenuItems.filter((item) => selectedMenuIds.includes(item.id))
 
   const applyBulkMenuPatch = async (payload, successMessage) => {
-    if (selectedMenuIds.length === 0) {
+    if (selectedMenuItems.length === 0) {
       showAdminAlert('Select at least one dish first.')
       return
     }
 
     const confirmed = await requestConfirmation({
       title: 'Bulk update dishes',
-      message: `Update ${selectedMenuIds.length} selected dish${selectedMenuIds.length === 1 ? '' : 'es'}?`,
+      message: `Update ${selectedMenuItems.length} selected dish${selectedMenuItems.length === 1 ? '' : 'es'}?`,
       actionLabel: 'Update',
       danger: false,
     })
@@ -1385,7 +1515,7 @@ export default function AdminDashboard() {
       setBusyKey('menu-bulk')
       setError('')
       setNotice('')
-      await Promise.all(selectedMenuIds.map((id) => adminApi.updateMenuItem(id, payload)))
+      await Promise.all(selectedMenuItems.map((item) => adminApi.updateMenuItem(item.id, payload)))
       setNotice(successMessage)
       setSelectedMenuIds([])
       await Promise.all([fetchMenuData(), fetchDashboard()])
@@ -1397,10 +1527,10 @@ export default function AdminDashboard() {
   }
 
   const applyBulkPriceUpdate = async () => {
-    const delta = Number(bulkPriceDelta || 0)
+    const amount = Number(bulkPriceDelta)
 
-    if (!Number.isFinite(delta) || delta === 0) {
-      showAdminAlert('Enter a valid price change amount.')
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showAdminAlert('Enter a valid price amount greater than 0.')
       return
     }
 
@@ -1409,11 +1539,36 @@ export default function AdminDashboard() {
       return
     }
 
+    const getNextPrice = (item) => {
+      const currentPrice = Number(item.price || 0)
+
+      if (bulkPriceMode === 'increase') {
+        return currentPrice + amount
+      }
+
+      if (bulkPriceMode === 'decrease') {
+        return currentPrice - amount
+      }
+
+      return amount
+    }
+
+    const invalidItem = selectedMenuItems.find((item) => getNextPrice(item) <= 0)
+
+    if (invalidItem) {
+      showAdminAlert(`Price update would make "${invalidItem.name}" zero or negative. Reduce the amount or choose Set exact price.`)
+      return
+    }
+
+    const actionLabel = bulkPriceMode === 'set'
+      ? `set exact price to INR ${amount}`
+      : `${bulkPriceMode === 'increase' ? 'increase' : 'decrease'} prices by INR ${amount}`
+
     const confirmed = await requestConfirmation({
       title: 'Bulk price update',
-      message: `Apply ${delta > 0 ? '+' : ''}${delta} INR to ${selectedMenuItems.length} selected dish prices?`,
+      message: `Apply ${actionLabel} for ${selectedMenuItems.length} selected dish${selectedMenuItems.length === 1 ? '' : 'es'}?`,
       actionLabel: 'Update Prices',
-      danger: delta < 0,
+      danger: bulkPriceMode === 'decrease',
     })
 
     if (!confirmed) {
@@ -1427,7 +1582,7 @@ export default function AdminDashboard() {
       await Promise.all(
         selectedMenuItems.map((item) =>
           adminApi.updateMenuItem(item.id, {
-            price: Math.max(1, Number(item.price || 0) + delta),
+            price: Number(getNextPrice(item).toFixed(2)),
           }),
         ),
       )
@@ -1443,14 +1598,14 @@ export default function AdminDashboard() {
   }
 
   const bulkDeleteMenuItems = async () => {
-    if (selectedMenuIds.length === 0) {
+    if (selectedMenuItems.length === 0) {
       showAdminAlert('Select at least one dish first.')
       return
     }
 
     const confirmed = await requestConfirmation({
       title: 'Bulk delete dishes',
-      message: `Delete ${selectedMenuIds.length} selected dish${selectedMenuIds.length === 1 ? '' : 'es'}? This cannot be undone.`,
+      message: `Delete ${selectedMenuItems.length} selected dish${selectedMenuItems.length === 1 ? '' : 'es'}? This cannot be undone.`,
       actionLabel: 'Delete',
       danger: true,
     })
@@ -1463,7 +1618,7 @@ export default function AdminDashboard() {
       setBusyKey('menu-bulk')
       setError('')
       setNotice('')
-      await Promise.all(selectedMenuIds.map((id) => adminApi.deleteMenuItem(id)))
+      await Promise.all(selectedMenuItems.map((item) => adminApi.deleteMenuItem(item.id)))
       setNotice('Selected dishes deleted')
       setSelectedMenuIds([])
       await Promise.all([fetchMenuData(), fetchDashboard()])
@@ -1474,14 +1629,16 @@ export default function AdminDashboard() {
     }
   }
 
-  const handlePrintOrder = (order, mode = 'print') => {
+  const openBrowserPrintFallback = (order) => {
+    acknowledgeOrderAlert(order?.orderNumber)
+
     if (typeof window === 'undefined') {
       return
     }
 
     const printWindow = window.open('', '_blank', 'width=420,height=720')
     if (!printWindow) {
-      showAdminAlert('Popup blocked. Allow popups or open Orders & Print.')
+      showAdminAlert('Popup blocked. Allow popups or open the Print Station.')
       return
     }
 
@@ -1540,7 +1697,96 @@ export default function AdminDashboard() {
       </html>
     `)
     printWindow.document.close()
-    setNotice(`${mode === 'reprint' ? 'Reprint' : 'Print'} opened for ${order.orderNumber}`)
+    setNotice(`Browser fallback print opened for ${order.orderNumber}`)
+  }
+
+  const handlePrintOrder = async (order, mode = 'print') => {
+    acknowledgeOrderAlert(order?.orderNumber)
+
+    if (!order?.id) {
+      showAdminAlert('Order is missing. Refresh and try again.')
+      return
+    }
+
+    const kind = mode === 'reprint' ? 'reprint' : 'original'
+
+    try {
+      setBusyKey(`print-order-${order.id}-${kind}`)
+      setError('')
+      setNotice('')
+      const response = await adminApi.createOrderPrintJob(order.id, { kind })
+      const job = response.data
+      const alreadyPrinted = kind === 'original' && job?.status === 'printed'
+
+      setNotice(
+        alreadyPrinted
+          ? `${order.orderNumber} is already printed. Use Reprint only when another bill is needed.`
+          : `${kind === 'reprint' ? 'Reprint' : 'Print job'} sent to Print Station for ${order.orderNumber}.`,
+      )
+      await Promise.all([fetchPrintData(), fetchOrders()])
+    } catch (requestError) {
+      setError(requestError.message || 'Could not queue print job')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const markOrderPrinted = async (order) => {
+    acknowledgeOrderAlert(order?.orderNumber)
+
+    const job = printJobs.find((printJob) => String(printJob.orderId) === String(order?.id))
+
+    if (!job) {
+      showAdminAlert('No print job exists for this order yet. Send it to the Print Station first.')
+      return
+    }
+
+    try {
+      setBusyKey(`mark-print-${job.id}`)
+      setError('')
+      setNotice('')
+      await adminApi.markPrintJobPrinted(job.id)
+      setNotice('Print job marked printed')
+      await Promise.all([fetchPrintData(), fetchOrders()])
+    } catch (requestError) {
+      setError(requestError.message || 'Could not mark print job printed')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const retryPrintJobFromMonitor = async (job) => {
+    acknowledgeOrderAlert(job?.order?.orderNumber)
+
+    try {
+      setBusyKey(`retry-print-${job.id}`)
+      setError('')
+      setNotice('')
+      await adminApi.retryPrintJob(job.id)
+      setNotice('Print job queued for retry')
+      await Promise.all([fetchPrintData(), fetchOrders()])
+    } catch (requestError) {
+      setError(requestError.message || 'Could not retry print job')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const markPrintJobPrintedFromMonitor = async (job) => {
+    acknowledgeOrderAlert(job?.order?.orderNumber)
+
+    try {
+      setBusyKey(`mark-print-${job.id}`)
+      setError('')
+      setNotice('')
+      await adminApi.markPrintJobPrinted(job.id)
+      setNotice('Print job marked printed')
+      await Promise.all([fetchPrintData(), fetchOrders()])
+    } catch (requestError) {
+      setError(requestError.message || 'Could not mark print job printed')
+    } finally {
+      setBusyKey('')
+    }
   }
 
   const savePrintSettings = async (patch) => {
@@ -1623,6 +1869,18 @@ export default function AdminDashboard() {
   const activeTabConfig = tabs.find((tab) => tab.id === activeTab) || tabs[0]
   const sidebarBrandName = getSidebarBrandName(settings?.restaurantName)
   const sidebarAdminName = getSidebarAdminName(admin)
+  const menuSectionTitle = {
+    items: 'Menu Items',
+    bestsellers: 'Best Sellers',
+    'missing-images': 'Missing Images',
+    bulk: 'Bulk Update',
+  }[menuSubTab] || 'Menu Items'
+  const menuSectionDescription = {
+    items: 'Manage dishes, pricing, availability, and images.',
+    bestsellers: 'Review and manage dishes currently marked as best sellers.',
+    'missing-images': 'Find dishes that still need a photo before publishing.',
+    bulk: 'Select visible dishes and apply safe bulk changes.',
+  }[menuSubTab] || 'Manage dishes, pricing, availability, and images.'
 
   if (isLoading) {
     return (
@@ -1634,8 +1892,8 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#f6f8fb] text-slate-900">
-      <div className="mx-auto flex w-full max-w-[1600px] gap-5 px-3 py-4 sm:px-4 md:px-5 lg:px-6">
-        <aside className="hidden h-full min-h-0 w-[276px] shrink-0 overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)]">
+      <div className="mx-auto flex min-w-0 w-full max-w-[1600px] gap-5 px-3 py-4 sm:px-4 md:px-5 lg:px-6">
+        <aside className="sticky top-4 hidden h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] min-h-0 w-[276px] shrink-0 overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)]">
           <div className="shrink-0 border-b border-slate-200 px-5 py-5">
             <div className="flex items-center gap-4">
               {settings?.logoUrl ? (
@@ -1666,8 +1924,8 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="relative min-h-0 px-3 py-4">
-            <div className="admin-scroll admin-sidebar-scroll h-full overflow-y-auto px-2 pr-2">
+          <div className="relative min-h-0 overflow-hidden px-3 py-4">
+            <div className="admin-scroll admin-sidebar-scroll h-full overflow-x-hidden overflow-y-auto px-2 pr-2">
               <nav className="space-y-4 py-1">
                 {tabGroups.map((group) => (
                   <div key={group.label}>
@@ -1682,14 +1940,14 @@ export default function AdminDashboard() {
                           <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left transition ${
+                            className={`flex min-w-0 w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left transition ${
                               activeTab === tab.id
                                 ? 'bg-slate-900 text-white'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             }`}
                           >
-                            <Icon className="h-4.5 w-4.5" />
-                            <span className="text-sm font-medium">{tab.label}</span>
+                            <Icon className="h-4.5 w-4.5 shrink-0" />
+                            <span className="min-w-0 truncate text-sm font-medium">{tab.label}</span>
                           </button>
                         )
                       })}
@@ -1731,11 +1989,11 @@ export default function AdminDashboard() {
                     View Site
                   </a>
                   <a
-                    href="/admin/kitchen"
+                    href="/admin/print-station"
                     target="_blank"
                     className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition hover:bg-amber-100"
                   >
-                    🖨️ Orders & Print
+                    Print Station
                   </a>
                   <ActionButton type="button" variant="danger" onClick={handleLogout} className="inline-flex items-center gap-2">
                     <LogOut className="h-4 w-4" />
@@ -1766,7 +2024,26 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            <div className="scrollbar-hide mb-6 flex gap-3 overflow-x-auto pb-2 lg:hidden">
+            {soundAlertOrder && (
+              <div className="mb-6 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+                <span className="min-w-0 break-words">
+                  New order {soundAlertOrder} needs attention.
+                  {soundBlocked ? ' Browser audio is blocked; click OK or any order action to unlock alerts.' : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    requestNotificationPermission()
+                    acknowledgeOrderAlert()
+                  }}
+                  className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                >
+                  OK
+                </button>
+              </div>
+            )}
+
+            <div className="scrollbar-hide mb-6 flex w-full max-w-full gap-3 overflow-x-auto overflow-y-hidden pb-2 lg:hidden">
               {tabs.map((tab) => {
                 const Icon = tab.icon
 
@@ -1861,7 +2138,7 @@ export default function AdminDashboard() {
                     {[
                       ['Add Dish', 'menu', () => setMenuSubTab('items')],
                       ['View Pending Orders', 'orders', () => setOrderStatusFilter('pending')],
-                      ['Open Orders & Print', 'orders-print'],
+                      ['Open Print Monitor', 'orders-print'],
                       ['Add Offer', 'offers'],
                       ['Create Promo Code', 'promocodes'],
                       ['Upload Gallery Image', 'gallery'],
@@ -1940,15 +2217,15 @@ export default function AdminDashboard() {
           {(activeTab === 'menu' || activeTab === 'categories') && (
             <div className="grid gap-6">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {menuMetrics.map((metric) => (
+                {(activeTab === 'categories' ? categoryMetrics : menuMetrics).map((metric) => (
                   <MetricTile key={metric.label} label={metric.label} value={metric.value} hint={metric.hint} />
                 ))}
               </div>
 
+              {activeTab === 'menu' && (
               <div className="rounded-[18px] border border-slate-200 bg-white p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <div className="scrollbar-hide flex gap-2 overflow-x-auto">
                   {[
-                    ['categories', 'Categories'],
                     ['items', 'Menu Items'],
                     ['bestsellers', 'Best Sellers'],
                     ['missing-images', 'Missing Images'],
@@ -1969,10 +2246,11 @@ export default function AdminDashboard() {
                   ))}
                 </div>
               </div>
+              )}
 
               <div className="grid gap-6">
-              {menuSubTab === 'categories' && (
-              <SectionCard title="Menu Categories" description="Create and organize menu groups.">
+              {activeTab === 'categories' && (
+              <SectionCard title="Categories" description="Create and organize category groups only. Dish editing stays on the Menu page.">
                 <form onSubmit={submitCategory} noValidate className="grid gap-4">
                   <Field label="Category Name">
                     <TextInput
@@ -2052,8 +2330,8 @@ export default function AdminDashboard() {
                 </form>
 
                 <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-600">
-                  Use categories as the base for rapid dish entry. Select a category below to prefill the dish form on
-                  the right.
+                  Category names, icons, active state, and sort order control how dish groups appear on the public menu.
+                  Move or delete dishes from the Menu page before deleting a category.
                 </div>
 
                 <div className="mt-6 space-y-3">
@@ -2071,21 +2349,15 @@ export default function AdminDashboard() {
                               <CategoryIcon className="h-5 w-5" />
                             </div>
                             <div className="min-w-0">
-                              <p className="font-semibold text-slate-900">{category.name}</p>
-                              <p className="mt-1 text-sm text-slate-600">{category.description || 'No description'}</p>
-                              <p className="mt-2 text-xs text-slate-500">
+                              <p className="break-words font-semibold text-slate-900">{category.name}</p>
+                              <p className="mt-1 break-words text-sm text-slate-600">{category.description || 'No description'}</p>
+                              <p className="mt-2 break-words text-xs text-slate-500">
                                 {getMenuCategoryIconLabel(category.icon)} | {category.itemCount} items | sort {category.sortOrder} |{' '}
                                 {category.isActive ? 'active' : 'inactive'}
                               </p>
                             </div>
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            <QuickPillButton
-                              active={String(menuItemForm.categoryId) === String(category.id)}
-                              onClick={() => prepareNewItemForCategory(category)}
-                            >
-                              Add Dish
-                            </QuickPillButton>
                             <QuickPillButton
                               active={category.isActive}
                               disabled={busyKey === `category-active-${category.id}`}
@@ -2145,8 +2417,8 @@ export default function AdminDashboard() {
               </SectionCard>
               )}
  
-              {menuSubTab !== 'categories' && (
-              <SectionCard title="Menu Items" description="Manage dishes, pricing, availability, and images.">
+              {activeTab === 'menu' && menuSubTab !== 'categories' && (
+              <SectionCard title={menuSectionTitle} description={menuSectionDescription}>
                 <form onSubmit={submitMenuItem} noValidate className="grid min-w-0 gap-3.5">
                   <div className="grid min-w-0 gap-3 md:grid-cols-2">
                     <Field label="Item Name">
@@ -2535,10 +2807,30 @@ export default function AdminDashboard() {
                   <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
                     <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">{selectedMenuIds.length} dishes selected</p>
-                        <p className="mt-1 text-xs text-slate-500">Use checkboxes below, then apply one bulk action at a time.</p>
+                        <p className="text-sm font-semibold text-slate-900">{selectedMenuItems.length} visible dishes selected</p>
+                        <p className="mt-1 text-xs text-slate-500">{filteredMenuItems.length} dishes match current filters. Use checkboxes below, then apply one bulk action at a time.</p>
                       </div>
                       <div className="flex max-w-full flex-wrap gap-2">
+                        <ActionButton
+                          type="button"
+                          variant="secondary"
+                          disabled={busyKey === 'menu-bulk' || filteredMenuItems.length === 0}
+                          onClick={() =>
+                            setSelectedMenuIds((current) => [
+                              ...new Set([...current, ...filteredMenuItems.map((item) => item.id)]),
+                            ])
+                          }
+                        >
+                          Select All Visible
+                        </ActionButton>
+                        <ActionButton
+                          type="button"
+                          variant="secondary"
+                          disabled={busyKey === 'menu-bulk' || selectedMenuIds.length === 0}
+                          onClick={() => setSelectedMenuIds([])}
+                        >
+                          Clear Selection
+                        </ActionButton>
                         <ActionButton
                           type="button"
                           variant="secondary"
@@ -2566,6 +2858,14 @@ export default function AdminDashboard() {
                         <ActionButton
                           type="button"
                           variant="secondary"
+                          disabled={busyKey === 'menu-bulk'}
+                          onClick={() => applyBulkMenuPatch({ isBestseller: false }, 'Selected dishes removed from bestsellers')}
+                        >
+                          Remove Bestseller
+                        </ActionButton>
+                        <ActionButton
+                          type="button"
+                          variant="secondary"
                           disabled={busyKey === 'menu-bulk' || !bulkCategoryId}
                           onClick={() => applyBulkMenuPatch({ categoryId: Number(bulkCategoryId) }, 'Selected dishes moved')}
                         >
@@ -2573,7 +2873,7 @@ export default function AdminDashboard() {
                         </ActionButton>
                       </div>
                     </div>
-                    <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[220px_160px_auto_auto]">
+                    <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[220px_180px_160px_auto_auto]">
                       <SelectInput value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}>
                         <option value="">Bulk category</option>
                         {categories.map((category) => (
@@ -2582,12 +2882,18 @@ export default function AdminDashboard() {
                           </option>
                         ))}
                       </SelectInput>
+                      <SelectInput value={bulkPriceMode} onChange={(event) => setBulkPriceMode(event.target.value)}>
+                        <option value="set">Set exact price</option>
+                        <option value="increase">Increase by amount</option>
+                        <option value="decrease">Decrease by amount</option>
+                      </SelectInput>
                       <TextInput
                         type="number"
+                        min="0.01"
                         step="0.01"
                         value={bulkPriceDelta}
                         onChange={(event) => setBulkPriceDelta(event.target.value)}
-                        placeholder="+/- INR"
+                        placeholder="INR amount"
                       />
                       <ActionButton
                         type="button"
@@ -2595,7 +2901,7 @@ export default function AdminDashboard() {
                         disabled={busyKey === 'menu-bulk'}
                         onClick={applyBulkPriceUpdate}
                       >
-                        Apply Price Change
+                        {busyKey === 'menu-bulk' ? 'Updating...' : 'Apply Price'}
                       </ActionButton>
                       <ActionButton
                         type="button"
@@ -2918,6 +3224,8 @@ export default function AdminDashboard() {
                 busyKey={busyKey}
                 updateOrderField={updateOrderField}
                 onPrintOrder={handlePrintOrder}
+                onBrowserPrintOrder={openBrowserPrintFallback}
+                onMarkPrinted={markOrderPrinted}
               />
               {totalOrderPages > 1 && (
                 <div className="mt-4 flex items-center justify-center gap-2">
@@ -2957,8 +3265,8 @@ export default function AdminDashboard() {
                 <MetricTile label="Print Station" value={printStationStatus.length > 0 ? 'Online' : 'Offline'} hint="Browser station status" />
               </div>
               <SectionCard
-                title="Orders & Print"
-                description="Queued print jobs stay on the VPS until a local print station receives them."
+                title="Print Monitor"
+                description="Monitor live orders and print jobs. Print Bill sends a queued job to the browser Print Station; Browser Print is only a fallback."
                 actions={
                   <a
                     href="/admin/print-station"
@@ -2969,6 +3277,23 @@ export default function AdminDashboard() {
                   </a>
                 }
               >
+                <OrdersList
+                  filteredOrders={filteredOrders.slice(0, 12)}
+                  expandedOrderId={expandedOrderId}
+                  setExpandedOrderId={setExpandedOrderId}
+                  busyKey={busyKey}
+                  updateOrderField={updateOrderField}
+                  onPrintOrder={handlePrintOrder}
+                  onBrowserPrintOrder={openBrowserPrintFallback}
+                  onMarkPrinted={markOrderPrinted}
+                />
+                <div className="mt-6 border-t border-slate-200 pt-5">
+                  <div className="mb-3 flex min-w-0 flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-950">Print Jobs</p>
+                      <p className="mt-1 text-xs text-slate-500">Queued, printed, and failed bill jobs from the same print queue used by the Print Station.</p>
+                    </div>
+                  </div>
                 <div className="grid gap-4">
                   {printJobs.map((job) => (
                     <div key={job.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
@@ -2985,38 +3310,16 @@ export default function AdminDashboard() {
                           <ActionButton
                             type="button"
                             variant="secondary"
-                            disabled={busyKey === `retry-print-${job.id}`}
-                            onClick={async () => {
-                              try {
-                                setBusyKey(`retry-print-${job.id}`)
-                                await adminApi.retryPrintJob(job.id)
-                                setNotice('Print job queued for retry')
-                                await fetchPrintData()
-                              } catch (requestError) {
-                                setError(requestError.message || 'Could not retry print job')
-                              } finally {
-                                setBusyKey('')
-                              }
-                            }}
+                            disabled={busyKey === `retry-print-${job.id}` || !['pending', 'failed'].includes(job.status)}
+                            onClick={() => retryPrintJobFromMonitor(job)}
                           >
                             Retry
                           </ActionButton>
                           <ActionButton
                             type="button"
                             variant="secondary"
-                            disabled={busyKey === `mark-print-${job.id}`}
-                            onClick={async () => {
-                              try {
-                                setBusyKey(`mark-print-${job.id}`)
-                                await adminApi.markPrintJobPrinted(job.id)
-                                setNotice('Print job marked printed')
-                                await fetchPrintData()
-                              } catch (requestError) {
-                                setError(requestError.message || 'Could not mark print job printed')
-                              } finally {
-                                setBusyKey('')
-                              }
-                            }}
+                            disabled={busyKey === `mark-print-${job.id}` || job.status === 'printed'}
+                            onClick={() => markPrintJobPrintedFromMonitor(job)}
                           >
                             Mark Printed
                           </ActionButton>
@@ -3025,6 +3328,7 @@ export default function AdminDashboard() {
                     </div>
                   ))}
                   {printJobs.length === 0 && <EmptyPanel title="No print jobs yet" description="New orders will create queued jobs automatically." />}
+                </div>
                 </div>
               </SectionCard>
             </div>
@@ -3338,6 +3642,13 @@ export default function AdminDashboard() {
                   checked={printSettings?.soundEnabled ?? true}
                   onChange={(event) => savePrintSettings({ soundEnabled: event.target.checked })}
                 />
+                <Field label="Print Station Branch">
+                  <SelectInput value={printSettings?.branchId || 'kukatpally'} onChange={(event) => savePrintSettings({ branchId: event.target.value })}>
+                    <option value="kukatpally">Kukatpally</option>
+                    <option value="bachupally">Bachupally / Nizampet</option>
+                    <option value="default">Default</option>
+                  </SelectInput>
+                </Field>
                 <Field label="Paper Size">
                   <SelectInput value={printSettings?.paperSize || '80mm'} onChange={(event) => savePrintSettings({ paperSize: event.target.value })}>
                     <option value="58mm">58mm</option>

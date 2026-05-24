@@ -232,10 +232,18 @@ export function StatusBadge({ value, kind = 'order' }) {
   }
 
   const classes = toneMap[kind]?.[value] || 'border-blue-200 bg-blue-50 text-blue-700'
+  const displayMap = {
+    print: {
+      pending: 'Queued',
+      sent: 'Queued',
+      printing: 'Queued',
+      not_printed: 'Not Printed',
+    },
+  }
 
   return (
     <span className={`inline-flex max-w-full items-center justify-center rounded-lg border px-2.5 py-1 text-center text-[11px] font-medium leading-4 ${classes}`}>
-      {toLabelCase(value)}
+      {displayMap[kind]?.[value] || toLabelCase(value)}
     </span>
   )
 }
@@ -280,6 +288,8 @@ export function OrdersList({
   busyKey,
   updateOrderField,
   onPrintOrder,
+  onBrowserPrintOrder,
+  onMarkPrinted,
   isLoading = false,
 }) {
   return (
@@ -324,6 +334,8 @@ export function OrdersList({
             const notes = getOrderNotes(order)
             const ageBadge = getAgeBadge(order)
             const quickStatuses = ['accepted', 'preparing', 'ready', 'delivered']
+            const isPrintingOrder = busyKey === `print-order-${order.id}-original`
+            const isReprintingOrder = busyKey === `print-order-${order.id}-reprint`
 
             return (
               <article key={order.id} className={`${isExpanded ? 'bg-slate-50/60' : 'bg-white hover:bg-slate-50/40'} transition`}>
@@ -428,20 +440,32 @@ export function OrdersList({
                   <div className="flex flex-wrap items-start gap-2 xl:justify-end">
                     <button
                       type="button"
+                      disabled={isPrintingOrder}
                       onClick={() => onPrintOrder?.(order, 'print')}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+                      className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Printer className="h-4 w-4" />
-                      Print
+                      {isPrintingOrder ? 'Sending...' : 'Send to Print Station'}
                     </button>
                     <button
                       type="button"
+                      disabled={isReprintingOrder}
                       onClick={() => onPrintOrder?.(order, 'reprint')}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <RotateCcw className="h-4 w-4" />
-                      Reprint
+                      {isReprintingOrder ? 'Sending...' : 'Reprint'}
                     </button>
+                    {order.printStatus !== 'printed' && onMarkPrinted && (
+                    <button
+                      type="button"
+                      onClick={() => onMarkPrinted(order)}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+                    >
+                      <Check className="h-4 w-4" />
+                      Mark Printed
+                    </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setExpandedOrderId((current) => (current === order.id ? null : order.id))}
@@ -576,22 +600,45 @@ export function OrdersList({
                           <div className="mb-4 flex flex-wrap gap-2">
                             <ActionButton
                               type="button"
-                              variant="secondary"
+                              variant="primary"
+                              disabled={isPrintingOrder}
                               onClick={() => onPrintOrder?.(order, 'print')}
                               className="inline-flex items-center gap-2"
                             >
                               <Printer className="h-4 w-4" />
-                              Print Bill
+                              {isPrintingOrder ? 'Sending...' : 'Send to Print Station'}
                             </ActionButton>
                             <ActionButton
                               type="button"
                               variant="secondary"
+                              disabled={isReprintingOrder}
                               onClick={() => onPrintOrder?.(order, 'reprint')}
                               className="inline-flex items-center gap-2"
                             >
                               <RotateCcw className="h-4 w-4" />
-                              Reprint
+                              {isReprintingOrder ? 'Sending...' : 'Reprint'}
                             </ActionButton>
+                            {order.printStatus !== 'printed' && onMarkPrinted && (
+                            <ActionButton
+                              type="button"
+                              variant="secondary"
+                              onClick={() => onMarkPrinted(order)}
+                              className="inline-flex items-center gap-2"
+                            >
+                              <Check className="h-4 w-4" />
+                              Mark Printed
+                            </ActionButton>
+                            )}
+                            {onBrowserPrintOrder && (
+                            <ActionButton
+                              type="button"
+                              variant="secondary"
+                              onClick={() => onBrowserPrintOrder(order)}
+                              className="inline-flex items-center gap-2"
+                            >
+                              Browser Print
+                            </ActionButton>
+                            )}
                             <ActionButton
                               type="button"
                               variant="secondary"

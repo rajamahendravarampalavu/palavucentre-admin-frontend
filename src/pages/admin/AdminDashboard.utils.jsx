@@ -38,10 +38,6 @@ export function toLabelCase(value) {
     return 'COD'
   }
 
-  if (normalized === 'delivered') {
-    return 'Completed'
-  }
-
   if (normalized === 'non_veg') {
     return 'Non-Veg'
   }
