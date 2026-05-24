@@ -288,7 +288,6 @@ export function OrdersList({
   busyKey,
   updateOrderField,
   onPrintOrder,
-  onBrowserPrintOrder,
   onMarkPrinted,
   isLoading = false,
 }) {
@@ -445,7 +444,7 @@ export function OrdersList({
                       className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Printer className="h-4 w-4" />
-                      {isPrintingOrder ? 'Sending...' : 'Send to Print Station'}
+                      {isPrintingOrder ? 'Opening...' : 'Print Bill'}
                     </button>
                     <button
                       type="button"
@@ -454,7 +453,7 @@ export function OrdersList({
                       className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <RotateCcw className="h-4 w-4" />
-                      {isReprintingOrder ? 'Sending...' : 'Reprint'}
+                      {isReprintingOrder ? 'Opening...' : 'Reprint'}
                     </button>
                     {order.printStatus !== 'printed' && onMarkPrinted && (
                     <button
@@ -606,7 +605,7 @@ export function OrdersList({
                               className="inline-flex items-center gap-2"
                             >
                               <Printer className="h-4 w-4" />
-                              {isPrintingOrder ? 'Sending...' : 'Send to Print Station'}
+                              {isPrintingOrder ? 'Opening...' : 'Print Bill'}
                             </ActionButton>
                             <ActionButton
                               type="button"
@@ -616,7 +615,7 @@ export function OrdersList({
                               className="inline-flex items-center gap-2"
                             >
                               <RotateCcw className="h-4 w-4" />
-                              {isReprintingOrder ? 'Sending...' : 'Reprint'}
+                              {isReprintingOrder ? 'Opening...' : 'Reprint'}
                             </ActionButton>
                             {order.printStatus !== 'printed' && onMarkPrinted && (
                             <ActionButton
@@ -627,16 +626,6 @@ export function OrdersList({
                             >
                               <Check className="h-4 w-4" />
                               Mark Printed
-                            </ActionButton>
-                            )}
-                            {onBrowserPrintOrder && (
-                            <ActionButton
-                              type="button"
-                              variant="secondary"
-                              onClick={() => onBrowserPrintOrder(order)}
-                              className="inline-flex items-center gap-2"
-                            >
-                              Browser Print
                             </ActionButton>
                             )}
                             <ActionButton

@@ -219,9 +219,7 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
   const [orderPage, setOrderPage] = useState(1)
   const ORDERS_PER_PAGE = 10
   const [expandedOrderId, setExpandedOrderId] = useState(null)
-  const [printJobs, setPrintJobs] = useState([])
   const [printSettings, setPrintSettings] = useState(null)
-  const [printStationStatus, setPrintStationStatus] = useState([])
   const [customerSearch, setCustomerSearch] = useState('')
   const [paymentSearch, setPaymentSearch] = useState('')
   const [expenseForm, setExpenseForm] = useState({ category: '', amount: '', notes: '', date: toDateInputValue(new Date()) })
@@ -617,18 +615,10 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
         time: item.updatedAt || item.createdAt,
         details: `${item.category?.name || 'No category'} / ${formatCurrency(item.price)}`,
       })),
-      ...printJobs.slice(0, 8).map((job) => ({
-        id: `print-${job.id}`,
-        user: 'Print station',
-        action: `Print job ${toLabelCase(job.status)}`,
-        entity: job.order?.orderNumber || `Job #${job.id}`,
-        time: job.updatedAt || job.createdAt,
-        details: job.errorMessage || job.printerName || 'No printer message',
-      })),
     ]
 
     return rows.sort((left, right) => new Date(right.time) - new Date(left.time)).slice(0, 24)
-  }, [menuItems, orders, printJobs])
+  }, [menuItems, orders])
 
   const fetchDashboard = async () => {
     const response = await adminApi.getDashboard()
@@ -706,13 +696,7 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
   }
 
   const fetchPrintData = async () => {
-    const [jobsResponse, settingsResponse] = await Promise.all([
-      adminApi.getPrintJobs({ page: 1, limit: 50 }).catch(() => ({ data: { items: [] } })),
-      adminApi.getPrintSettings().catch(() => ({ data: null })),
-    ])
-
-    setPrintJobs(jobsResponse.data?.items || [])
-    setPrintStationStatus(jobsResponse.data?.stationStatus || [])
+    const settingsResponse = await adminApi.getPrintSettings().catch(() => ({ data: null }))
     setPrintSettings(settingsResponse.data || null)
   }
 
@@ -879,10 +863,6 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
     socket.on('print-job-sent', handleRealtimeRefresh)
     socket.on('print-job-printed', handleRealtimeRefresh)
     socket.on('print-job-failed', handleRealtimeRefresh)
-    socket.on('print-station-status', (payload) => {
-      setPrintStationStatus(Array.isArray(payload) ? payload : [])
-    })
-
     return () => {
       socket.disconnect()
     }
@@ -1633,15 +1613,18 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
     acknowledgeOrderAlert(order?.orderNumber)
 
     if (typeof window === 'undefined') {
-      return
+      return false
     }
 
     const printWindow = window.open('', '_blank', 'width=420,height=720')
     if (!printWindow) {
-      showAdminAlert('Popup blocked. Allow popups or open the Print Station.')
-      return
+      showAdminAlert('Popup blocked. Allow popups for this admin site, then click Print Bill again.')
+      return false
     }
 
+    const paperSize = printSettings?.paperSize || '80mm'
+    const billWidth = paperSize === '58mm' ? '58mm' : paperSize === 'A4' ? '190mm' : '80mm'
+    const pageSize = paperSize === 'A4' ? 'A4' : `${paperSize} auto`
     const itemRows = (order.items || [])
       .map(
         (item) => `
@@ -1661,7 +1644,7 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
           <title>${escapeHtml(order.orderNumber)}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 12px; color: #111; }
-            .bill { width: 80mm; max-width: 100%; margin: 0 auto; }
+            .bill { width: ${billWidth}; max-width: 100%; margin: 0 auto; }
             h1 { font-size: 18px; margin: 0 0 6px; text-align: center; }
             p { margin: 3px 0; font-size: 12px; }
             table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
@@ -1669,12 +1652,12 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
             .center { text-align: center; }
             .right { text-align: right; }
             .total { font-size: 16px; font-weight: 700; }
-            @media print { @page { size: 80mm auto; margin: 4mm; } body { padding: 0; } }
+            @media print { @page { size: ${pageSize}; margin: 4mm; } body { padding: 0; } }
           </style>
         </head>
         <body>
           <div class="bill">
-            <h1>${escapeHtml(settings?.restaurantName || 'PalavuCentre')}</h1>
+            <h1>${escapeHtml(printSettings?.restaurantName || 'PalavuCentre')}</h1>
             <p><strong>Order:</strong> ${escapeHtml(order.orderNumber)}</p>
             <p><strong>Date:</strong> ${formatDateTime(order.createdAt)}</p>
             <p><strong>Customer:</strong> ${escapeHtml(order.customer?.name || 'Guest')}</p>
@@ -1697,7 +1680,8 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
       </html>
     `)
     printWindow.document.close()
-    setNotice(`Browser fallback print opened for ${order.orderNumber}`)
+    setNotice(`Print bill opened for ${order.orderNumber}`)
+    return true
   }
 
   const handlePrintOrder = async (order, mode = 'print') => {
@@ -1714,18 +1698,17 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
       setBusyKey(`print-order-${order.id}-${kind}`)
       setError('')
       setNotice('')
-      const response = await adminApi.createOrderPrintJob(order.id, { kind })
-      const job = response.data
-      const alreadyPrinted = kind === 'original' && job?.status === 'printed'
+      const opened = openBrowserPrintFallback(order)
 
-      setNotice(
-        alreadyPrinted
-          ? `${order.orderNumber} is already printed. Use Reprint only when another bill is needed.`
-          : `${kind === 'reprint' ? 'Reprint' : 'Print job'} sent to Print Station for ${order.orderNumber}.`,
-      )
-      await Promise.all([fetchPrintData(), fetchOrders()])
+      if (!opened) {
+        return
+      }
+
+      await adminApi.updateOrder(order.id, { printStatus: 'printed' })
+      setNotice(`${kind === 'reprint' ? 'Reprint' : 'Print bill'} opened for ${order.orderNumber}.`)
+      await Promise.all([fetchOrders(), fetchDashboard()])
     } catch (requestError) {
-      setError(requestError.message || 'Could not queue print job')
+      setError(requestError.message || 'Could not open print bill')
     } finally {
       setBusyKey('')
     }
@@ -1734,56 +1717,20 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
   const markOrderPrinted = async (order) => {
     acknowledgeOrderAlert(order?.orderNumber)
 
-    const job = printJobs.find((printJob) => String(printJob.orderId) === String(order?.id))
-
-    if (!job) {
-      showAdminAlert('No print job exists for this order yet. Send it to the Print Station first.')
+    if (!order?.id) {
+      showAdminAlert('Order is missing. Refresh and try again.')
       return
     }
 
     try {
-      setBusyKey(`mark-print-${job.id}`)
+      setBusyKey(`mark-print-${order.id}`)
       setError('')
       setNotice('')
-      await adminApi.markPrintJobPrinted(job.id)
-      setNotice('Print job marked printed')
-      await Promise.all([fetchPrintData(), fetchOrders()])
+      await adminApi.updateOrder(order.id, { printStatus: 'printed' })
+      setNotice('Order marked printed')
+      await fetchOrders()
     } catch (requestError) {
-      setError(requestError.message || 'Could not mark print job printed')
-    } finally {
-      setBusyKey('')
-    }
-  }
-
-  const retryPrintJobFromMonitor = async (job) => {
-    acknowledgeOrderAlert(job?.order?.orderNumber)
-
-    try {
-      setBusyKey(`retry-print-${job.id}`)
-      setError('')
-      setNotice('')
-      await adminApi.retryPrintJob(job.id)
-      setNotice('Print job queued for retry')
-      await Promise.all([fetchPrintData(), fetchOrders()])
-    } catch (requestError) {
-      setError(requestError.message || 'Could not retry print job')
-    } finally {
-      setBusyKey('')
-    }
-  }
-
-  const markPrintJobPrintedFromMonitor = async (job) => {
-    acknowledgeOrderAlert(job?.order?.orderNumber)
-
-    try {
-      setBusyKey(`mark-print-${job.id}`)
-      setError('')
-      setNotice('')
-      await adminApi.markPrintJobPrinted(job.id)
-      setNotice('Print job marked printed')
-      await Promise.all([fetchPrintData(), fetchOrders()])
-    } catch (requestError) {
-      setError(requestError.message || 'Could not mark print job printed')
+      setError(requestError.message || 'Could not mark order printed')
     } finally {
       setBusyKey('')
     }
@@ -1988,13 +1935,6 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
                   >
                     View Site
                   </a>
-                  <a
-                    href="/admin/print-station"
-                    target="_blank"
-                    className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition hover:bg-amber-100"
-                  >
-                    Print Station
-                  </a>
                   <ActionButton type="button" variant="danger" onClick={handleLogout} className="inline-flex items-center gap-2">
                     <LogOut className="h-4 w-4" />
                     Logout
@@ -2025,7 +1965,7 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
             )}
 
             {soundAlertOrder && (
-              <div className="mb-6 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+              <div className="fixed right-4 top-4 z-[90] flex w-[calc(100vw-2rem)] max-w-md flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 shadow-xl sm:flex-row sm:items-center sm:justify-between">
                 <span className="min-w-0 break-words">
                   New order {soundAlertOrder} needs attention.
                   {soundBlocked ? ' Browser audio is blocked; click OK or any order action to unlock alerts.' : ''}
@@ -3224,7 +3164,6 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
                 busyKey={busyKey}
                 updateOrderField={updateOrderField}
                 onPrintOrder={handlePrintOrder}
-                onBrowserPrintOrder={openBrowserPrintFallback}
                 onMarkPrinted={markOrderPrinted}
               />
               {totalOrderPages > 1 && (
@@ -3260,22 +3199,13 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
           {activeTab === 'orders-print' && (
             <div className="grid gap-6">
               <div className="grid gap-4 md:grid-cols-3">
-                <MetricTile label="Queued Jobs" value={printJobs.filter((job) => job.status === 'pending').length} hint="Waiting for station" />
-                <MetricTile label="Failed Jobs" value={printJobs.filter((job) => job.status === 'failed').length} hint="Needs retry" />
-                <MetricTile label="Print Station" value={printStationStatus.length > 0 ? 'Online' : 'Offline'} hint="Browser station status" />
+                <MetricTile label="Live Orders" value={filteredOrders.length} hint="Loaded in monitor" />
+                <MetricTile label="Needs Action" value={filteredOrders.filter((order) => ['pending', 'accepted', 'preparing'].includes(order.orderStatus)).length} hint="Not completed" />
+                <MetricTile label="Printed" value={filteredOrders.filter((order) => order.printStatus === 'printed').length} hint="Marked printed" />
               </div>
               <SectionCard
                 title="Print Monitor"
-                description="Monitor live orders and print jobs. Print Bill sends a queued job to the browser Print Station; Browser Print is only a fallback."
-                actions={
-                  <a
-                    href="/admin/print-station"
-                    target="_blank"
-                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Open Print Station
-                  </a>
-                }
+                description="Monitor live orders and print bills directly from this admin browser. New orders show a sound alert with an OK acknowledgement."
               >
                 <OrdersList
                   filteredOrders={filteredOrders.slice(0, 12)}
@@ -3284,52 +3214,8 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
                   busyKey={busyKey}
                   updateOrderField={updateOrderField}
                   onPrintOrder={handlePrintOrder}
-                  onBrowserPrintOrder={openBrowserPrintFallback}
                   onMarkPrinted={markOrderPrinted}
                 />
-                <div className="mt-6 border-t border-slate-200 pt-5">
-                  <div className="mb-3 flex min-w-0 flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-950">Print Jobs</p>
-                      <p className="mt-1 text-xs text-slate-500">Queued, printed, and failed bill jobs from the same print queue used by the Print Station.</p>
-                    </div>
-                  </div>
-                <div className="grid gap-4">
-                  {printJobs.map((job) => (
-                    <div key={job.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                          <p className="font-semibold text-slate-950">{job.order?.orderNumber || `Print Job #${job.id}`}</p>
-                          <p className="mt-1 text-sm text-slate-600">
-                            {toLabelCase(job.branchId || 'default')} | {formatCurrency(job.order?.grandTotal || 0)} | {formatDateTime(job.createdAt)}
-                          </p>
-                          {job.errorMessage && <p className="mt-2 text-sm text-red-600">{job.errorMessage}</p>}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <StatusBadge value={job.status} kind="print" />
-                          <ActionButton
-                            type="button"
-                            variant="secondary"
-                            disabled={busyKey === `retry-print-${job.id}` || !['pending', 'failed'].includes(job.status)}
-                            onClick={() => retryPrintJobFromMonitor(job)}
-                          >
-                            Retry
-                          </ActionButton>
-                          <ActionButton
-                            type="button"
-                            variant="secondary"
-                            disabled={busyKey === `mark-print-${job.id}` || job.status === 'printed'}
-                            onClick={() => markPrintJobPrintedFromMonitor(job)}
-                          >
-                            Mark Printed
-                          </ActionButton>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {printJobs.length === 0 && <EmptyPanel title="No print jobs yet" description="New orders will create queued jobs automatically." />}
-                </div>
-                </div>
               </SectionCard>
             </div>
           )}
@@ -3540,7 +3426,7 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
           )}
 
           {activeTab === 'branches' && (
-            <SectionCard title="Branches" description="Branch-level order activity and print station status.">
+            <SectionCard title="Branches" description="Branch-level order activity and revenue.">
               <div className="grid min-w-0 gap-4 lg:grid-cols-2">
                 {branchRows.map((branch) => (
                   <div key={branch.id} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-5">
@@ -3548,9 +3434,6 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
                       <div className="min-w-0">
                         <p className="break-words font-semibold leading-6 text-slate-950">{branch.name}</p>
                         <p className="mt-1 break-words text-sm leading-5 text-slate-500">Active branch</p>
-                      </div>
-                      <div className="shrink-0">
-                        <StatusBadge value={printStationStatus.some((station) => station.branchId === branch.id) ? 'printed' : 'not_printed'} kind="print" />
                       </div>
                     </div>
                     <div className="mt-4 grid min-w-0 grid-cols-3 gap-2 sm:gap-3">
@@ -3630,25 +3513,13 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
           )}
 
           {activeTab === 'print-settings' && (
-            <SectionCard title="Print Settings" description="Configure automatic bill printing and browser print station behavior.">
+            <SectionCard title="Print Settings" description="Configure direct bill printing, receipt details, paper size, and sound alerts.">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <ToggleInput
-                  label="Auto Print Enabled"
-                  checked={printSettings?.autoPrintEnabled ?? true}
-                  onChange={(event) => savePrintSettings({ autoPrintEnabled: event.target.checked })}
-                />
                 <ToggleInput
                   label="Sound Alert Enabled"
                   checked={printSettings?.soundEnabled ?? true}
                   onChange={(event) => savePrintSettings({ soundEnabled: event.target.checked })}
                 />
-                <Field label="Print Station Branch">
-                  <SelectInput value={printSettings?.branchId || 'kukatpally'} onChange={(event) => savePrintSettings({ branchId: event.target.value })}>
-                    <option value="kukatpally">Kukatpally</option>
-                    <option value="bachupally">Bachupally / Nizampet</option>
-                    <option value="default">Default</option>
-                  </SelectInput>
-                </Field>
                 <Field label="Paper Size">
                   <SelectInput value={printSettings?.paperSize || '80mm'} onChange={(event) => savePrintSettings({ paperSize: event.target.value })}>
                     <option value="58mm">58mm</option>
@@ -3659,18 +3530,6 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
                 <Field label="Restaurant Name">
                   <TextInput value={printSettings?.restaurantName || ''} onChange={(event) => setPrintSettings((current) => ({ ...(current || {}), restaurantName: event.target.value }))} onBlur={(event) => savePrintSettings({ restaurantName: event.target.value })} />
                 </Field>
-                <Field label="Printer Name">
-                  <TextInput value={printSettings?.defaultPrinterName || ''} onChange={(event) => setPrintSettings((current) => ({ ...(current || {}), defaultPrinterName: event.target.value }))} onBlur={(event) => savePrintSettings({ defaultPrinterName: event.target.value })} />
-                </Field>
-                <Field label="Copies">
-                  <TextInput type="number" min="1" max="5" value={printSettings?.copies || 1} onChange={(event) => setPrintSettings((current) => ({ ...(current || {}), copies: event.target.value }))} onBlur={(event) => savePrintSettings({ copies: Number(event.target.value || 1) })} />
-                </Field>
-              </div>
-              <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm font-semibold text-slate-950">Station Status</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {printStationStatus.length > 0 ? `${printStationStatus.length} print station connected.` : 'Print station offline. New bills will be queued.'}
-                </p>
               </div>
             </SectionCard>
           )}

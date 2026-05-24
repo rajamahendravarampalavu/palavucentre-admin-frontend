@@ -58,7 +58,7 @@ export const tabs = [
     label: 'Print Monitor',
     icon: Printer,
     group: 'Dashboard',
-    description: 'Monitor orders and print jobs, send bills to the print station, and retry queued bills.',
+    description: 'Monitor live orders, print bills directly from the admin browser, and handle sound alerts.',
   },
   {
     id: 'menu',
@@ -149,7 +149,7 @@ export const tabs = [
     label: 'Branches',
     icon: Building2,
     group: 'System',
-    description: 'Review branch order activity, contact details, and print station status.',
+    description: 'Review branch order activity, contact details, and revenue.',
   },
   {
     id: 'staff',
@@ -170,7 +170,7 @@ export const tabs = [
     label: 'Print Settings',
     icon: Printer,
     group: 'System',
-    description: 'Configure bill printing, sound alerts, paper size, and station status.',
+    description: 'Configure bill printing, sound alerts, paper size, and receipt details.',
   },
   {
     id: 'settings',
