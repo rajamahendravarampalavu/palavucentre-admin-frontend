@@ -287,6 +287,7 @@ export default function KitchenDisplay() {
   const socketRef = useRef(null)
   const audioUnlocked = useRef(false)
   const printedJobIds = useRef(new Set())
+  const notifiedJobIds = useRef(new Set())
   const activePrintJobRef = useRef(null)
 
   const configuredBranchId = settingsForm?.branchId || settings?.branchId
@@ -322,10 +323,6 @@ export default function KitchenDisplay() {
     return response.data
   }, [])
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([refreshOrders(), refreshPrintJobs(), refreshSettings()])
-  }, [refreshOrders, refreshPrintJobs, refreshSettings])
-
   const unlockAudio = () => {
     if (!audioUnlocked.current) {
       audioUnlocked.current = true
@@ -343,6 +340,40 @@ export default function KitchenDisplay() {
       return [...current, job]
     })
   }, [branchId])
+
+  const enqueuePendingPrintJobs = useCallback((jobs = []) => {
+    jobs.filter((job) => ['pending', 'sent'].includes(job.status)).forEach(enqueuePrintJob)
+  }, [enqueuePrintJob])
+
+  const refreshAndEnqueuePrintJobs = useCallback(async () => {
+    const jobs = await refreshPrintJobs()
+    enqueuePendingPrintJobs(jobs)
+    return jobs
+  }, [enqueuePendingPrintJobs, refreshPrintJobs])
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refreshOrders(), refreshSettings(), refreshAndEnqueuePrintJobs()])
+  }, [refreshAndEnqueuePrintJobs, refreshOrders, refreshSettings])
+
+  const notifyPrintJob = useCallback((job) => {
+    if (!job?.id || notifiedJobIds.current.has(job.id)) return
+
+    notifiedJobIds.current.add(job.id)
+    if (soundEnabled) playNotificationSound()
+    showBrowserNotification('New bill ready', `Order ${job?.payload?.order?.orderNumber || job?.order?.orderNumber || ''}`)
+  }, [soundEnabled])
+
+  const handleRealtimePrintJob = useCallback((job) => {
+    if (job?.branchId && normalizeBranchId(job.branchId) !== normalizeBranchId(branchId)) return
+
+    if (job && ['pending', 'sent'].includes(job.status)) {
+      notifyPrintJob(job)
+      enqueuePrintJob(job)
+    }
+
+    refreshOrders().catch(() => null)
+    refreshAndEnqueuePrintJobs().catch(() => null)
+  }, [branchId, enqueuePrintJob, notifyPrintJob, refreshAndEnqueuePrintJobs, refreshOrders])
 
   const markPrinted = useCallback(async (job) => {
     if (!job?.id) {
@@ -384,9 +415,7 @@ export default function KitchenDisplay() {
       setStationError('')
       socket.emit('join-admin')
       socket.emit('join-print-station', { branchId, token: PRINT_AGENT_TOKEN })
-      refreshPrintJobs()
-        .then((jobs) => jobs.filter((job) => ['pending', 'sent'].includes(job.status)).forEach(enqueuePrintJob))
-        .catch(() => null)
+      refreshAndEnqueuePrintJobs().catch(() => null)
     })
 
     socket.on('disconnect', () => {
@@ -394,9 +423,16 @@ export default function KitchenDisplay() {
       setStationJoined(false)
     })
 
+    socket.on('connect_error', (error) => {
+      setConnected(false)
+      setStationJoined(false)
+      setStationError(`Realtime connection failed: ${error?.message || 'could not connect'}`)
+    })
+
     socket.on('print-station-joined', () => {
       setStationJoined(true)
       setStationError('')
+      refreshAndEnqueuePrintJobs().catch(() => null)
     })
 
     socket.on('print-station-error', (payload) => {
@@ -408,14 +444,7 @@ export default function KitchenDisplay() {
       setStationStatuses(Array.isArray(payload) ? payload : [])
     })
 
-    socket.on('new_print_job', (job) => {
-      if (normalizeBranchId(job?.branchId) !== normalizeBranchId(branchId)) return
-      if (soundEnabled) playNotificationSound()
-      showBrowserNotification('New bill ready', `Order ${job?.payload?.order?.orderNumber || job?.order?.orderNumber || ''}`)
-      enqueuePrintJob(job)
-      refreshOrders().catch(() => null)
-      refreshPrintJobs().catch(() => null)
-    })
+    socket.on('new_print_job', handleRealtimePrintJob)
 
     socket.on('new-order', (data) => {
       if (data?.branchId && normalizeBranchId(data.branchId) !== normalizeBranchId(branchId)) return
@@ -430,16 +459,17 @@ export default function KitchenDisplay() {
 
     socket.on('payment-verified', () => {
       refreshOrders().catch(() => null)
-      refreshPrintJobs().catch(() => null)
+      refreshAndEnqueuePrintJobs().catch(() => null)
     })
 
     socket.on('payment-webhook', () => {
       refreshOrders().catch(() => null)
-      refreshPrintJobs().catch(() => null)
+      refreshAndEnqueuePrintJobs().catch(() => null)
     })
 
-    socket.on('print-job-created', refreshPrintJobs)
-    socket.on('print-job-sent', refreshPrintJobs)
+    socket.on('print-job-created', handleRealtimePrintJob)
+    socket.on('print-job-queued', handleRealtimePrintJob)
+    socket.on('print-job-sent', handleRealtimePrintJob)
     socket.on('print-job-printed', refreshPrintJobs)
     socket.on('print-job-failed', refreshPrintJobs)
 
@@ -449,7 +479,7 @@ export default function KitchenDisplay() {
       window.clearInterval(pingTimer)
       socket.disconnect()
     }
-  }, [branchId, enqueuePrintJob, refreshOrders, refreshPrintJobs, soundEnabled])
+  }, [branchId, handleRealtimePrintJob, refreshAndEnqueuePrintJobs, refreshOrders, refreshPrintJobs, soundEnabled])
 
   useEffect(() => {
     if (!autoPrintEnabled || activePrintJob || printQueue.length === 0) return
@@ -818,7 +848,7 @@ export default function KitchenDisplay() {
                 <p className="text-sm font-semibold text-slate-950">Print Jobs</p>
                 <p className="mt-1 text-xs text-slate-500">Retry failed or queued bills.</p>
               </div>
-              <button onClick={refreshPrintJobs} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700">
+              <button onClick={refreshAndEnqueuePrintJobs} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700">
                 Reload
               </button>
             </div>

@@ -20,6 +20,75 @@ const defaultPageParams = {
   limit: 20,
 }
 
+const PRINT_SETTING_FIELDS = [
+  'autoPrintEnabled',
+  'soundEnabled',
+  'defaultPrinterName',
+  'branchId',
+  'paperSize',
+  'restaurantName',
+  'branchAddress',
+  'phone',
+  'gstNumber',
+  'footerMessage',
+  'printLogoEnabled',
+  'copies',
+  'maxAutoRetries',
+]
+
+function cleanPrintSettingsPayload(body = {}) {
+  const payload = {}
+
+  PRINT_SETTING_FIELDS.forEach((field) => {
+    const value = body[field]
+
+    if (value === null || value === undefined) {
+      return
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+
+      if (!trimmed) {
+        return
+      }
+
+      payload[field] = trimmed
+      return
+    }
+
+    payload[field] = value
+  })
+
+  if (payload.restaurantName && payload.restaurantName.length < 2) {
+    delete payload.restaurantName
+  }
+
+  if (payload.footerMessage && payload.footerMessage.length < 1) {
+    delete payload.footerMessage
+  }
+
+  if (payload.copies !== undefined) {
+    const copies = Number(payload.copies)
+    if (Number.isFinite(copies)) {
+      payload.copies = copies
+    } else {
+      delete payload.copies
+    }
+  }
+
+  if (payload.maxAutoRetries !== undefined) {
+    const maxAutoRetries = Number(payload.maxAutoRetries)
+    if (Number.isFinite(maxAutoRetries)) {
+      payload.maxAutoRetries = maxAutoRetries
+    } else {
+      delete payload.maxAutoRetries
+    }
+  }
+
+  return payload
+}
+
 export const adminApi = {
   login: (body) => apiRequest('/admin/login', { method: 'POST', body }),
   logout: () => apiRequest('/admin/logout', { method: 'POST' }),
@@ -65,7 +134,7 @@ export const adminApi = {
   markPrintJobPrinted: (id) => apiRequest(`/admin/print-jobs/${id}/mark-printed`, { method: 'POST' }),
   failPrintJob: (id, body) => apiRequest(`/admin/print-jobs/${id}/fail`, { method: 'POST', body }),
   getPrintSettings: () => apiRequest('/admin/print-settings'),
-  updatePrintSettings: (body) => apiRequest('/admin/print-settings', { method: 'PUT', body }),
+  updatePrintSettings: (body) => apiRequest('/admin/print-settings', { method: 'PUT', body: cleanPrintSettingsPayload(body) }),
 
   getInquiries: (params = {}) => apiRequest(`/admin/inquiries${buildQueryString({ ...defaultPageParams, ...params })}`),
   updateInquiry: (type, id, body) => apiRequest(`/admin/inquiries/${type}/${id}`, { method: 'PATCH', body }),
