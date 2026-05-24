@@ -1625,55 +1625,206 @@ export default function AdminDashboard({ initialTab = 'overview' }) {
     const paperSize = printSettings?.paperSize || '80mm'
     const billWidth = paperSize === '58mm' ? '58mm' : paperSize === 'A4' ? '190mm' : '80mm'
     const pageSize = paperSize === 'A4' ? 'A4' : `${paperSize} auto`
+    const branchDetails = {
+      kukatpally: {
+        name: 'Kukatpally',
+        address: 'Rajamahendravaram Palavu Centre, Kukatpally, Hyderabad',
+        phone: '9966655997',
+      },
+      bachupally: {
+        name: 'Bachupally / Nizampet',
+        address: 'Rajamahendravaram Pulav Centre, Nizampet, Hyderabad',
+        phone: '9966655997',
+      },
+    }
+    const branch = branchDetails[order.storeLocation] || {
+      name: toLabelCase(order.storeLocation || printSettings?.branchId || 'Branch'),
+      address: order.customer?.address || printSettings?.branchAddress || '',
+      phone: printSettings?.phone || '9966655997',
+    }
+    const receiptMoney = (value) => `Rs. ${Number(value || 0).toFixed(2)}`
+    const receiptDate = new Date(order.createdAt || Date.now()).toLocaleString('en-IN', {
+      day: 'numeric',
+      month: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    })
+    const restaurantName = String(printSettings?.restaurantName || 'Rajamahendravaram PalavuCentre').toUpperCase()
+    const discountAmount = Number(order.pricing?.discountAmount || 0)
     const itemRows = (order.items || [])
       .map(
         (item) => `
-          <tr>
-            <td>${escapeHtml(item.name)}</td>
-            <td class="center">${item.quantity}</td>
-            <td class="right">${formatCurrency(item.unitPrice)}</td>
-            <td class="right">${formatCurrency(item.total)}</td>
-          </tr>
+          <div class="item-row">
+            <div class="item-name">${escapeHtml(item.name)}</div>
+            <div class="item-size">${item.variantLabel ? `Size: ${escapeHtml(item.variantLabel)}` : ''}</div>
+            <div class="item-qty">${item.quantity}</div>
+            <div class="item-amount">${receiptMoney(item.total)}</div>
+          </div>
         `,
       )
       .join('')
+    const discountRow = discountAmount > 0
+      ? `<div class="total-row"><span>Discount</span><span>-${receiptMoney(discountAmount)}</span></div>`
+      : ''
 
     printWindow.document.write(`
       <html>
         <head>
           <title>${escapeHtml(order.orderNumber)}</title>
           <style>
-            body { font-family: Arial, sans-serif; margin: 0; padding: 12px; color: #111; }
-            .bill { width: ${billWidth}; max-width: 100%; margin: 0 auto; }
-            h1 { font-size: 18px; margin: 0 0 6px; text-align: center; }
-            p { margin: 3px 0; font-size: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-            th, td { border-bottom: 1px dashed #999; padding: 6px 2px; vertical-align: top; text-align: left; }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              padding: 14px 18px;
+              background: #fff;
+              color: #000;
+              font-family: "Courier New", Courier, monospace;
+              font-size: 15px;
+              line-height: 1.42;
+            }
+            .bill {
+              width: ${billWidth};
+              max-width: 100%;
+              margin: 0 auto;
+            }
             .center { text-align: center; }
-            .right { text-align: right; }
-            .total { font-size: 16px; font-weight: 700; }
-            @media print { @page { size: ${pageSize}; margin: 4mm; } body { padding: 0; } }
+            .brand {
+              margin: 6px 0 12px;
+              font-size: 20px;
+              line-height: 1.2;
+              font-weight: 800;
+              text-align: center;
+              text-transform: uppercase;
+            }
+            .branch-name {
+              margin: 0 0 10px;
+              font-size: 16px;
+            }
+            .address {
+              margin: 0 auto 8px;
+              max-width: 92%;
+              line-height: 1.55;
+            }
+            .phone { margin: 0; }
+            .divider {
+              border: 0;
+              border-top: 2px dashed #000;
+              margin: 20px 0 16px;
+            }
+            .meta-row,
+            .total-row,
+            .grand-row {
+              display: flex;
+              justify-content: space-between;
+              gap: 16px;
+              margin: 11px 0;
+            }
+            .meta-row span:first-child,
+            .total-row span:first-child,
+            .grand-row span:first-child {
+              flex: 0 0 auto;
+            }
+            .meta-row span:last-child,
+            .total-row span:last-child,
+            .grand-row span:last-child {
+              min-width: 0;
+              text-align: right;
+              overflow-wrap: anywhere;
+            }
+            .bold { font-weight: 800; }
+            .items-head {
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) 42px 92px;
+              gap: 6px;
+              border-bottom: 2px solid #000;
+              padding-bottom: 7px;
+              font-weight: 800;
+            }
+            .item-row {
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) 42px 92px;
+              gap: 4px 6px;
+              border-bottom: 2px dashed #9aa8bd;
+              padding: 9px 0 10px;
+            }
+            .item-name {
+              grid-column: 1 / 4;
+              overflow-wrap: anywhere;
+            }
+            .item-size {
+              min-height: 1.2em;
+              overflow-wrap: anywhere;
+            }
+            .item-qty,
+            .head-qty {
+              text-align: center;
+            }
+            .item-amount,
+            .head-amount {
+              text-align: right;
+              white-space: nowrap;
+            }
+            .totals {
+              margin-top: 16px;
+            }
+            .grand-row {
+              border-top: 2px solid #000;
+              margin-top: 14px;
+              padding-top: 14px;
+              font-size: 19px;
+              font-weight: 800;
+            }
+            .footer {
+              margin-top: 20px;
+              text-align: center;
+              font-size: 14px;
+            }
+            @media print {
+              @page { size: ${pageSize}; margin: 0; }
+              body { padding: 5mm 4mm; }
+              .bill { width: ${billWidth}; }
+            }
           </style>
         </head>
         <body>
           <div class="bill">
-            <h1>${escapeHtml(printSettings?.restaurantName || 'PalavuCentre')}</h1>
-            <p><strong>Order:</strong> ${escapeHtml(order.orderNumber)}</p>
-            <p><strong>Date:</strong> ${formatDateTime(order.createdAt)}</p>
-            <p><strong>Customer:</strong> ${escapeHtml(order.customer?.name || 'Guest')}</p>
-            <p><strong>Phone:</strong> ${escapeHtml(order.customer?.phone || '-')}</p>
-            <p><strong>Branch:</strong> ${toLabelCase(order.storeLocation || 'not selected')}</p>
-            <p><strong>Payment:</strong> ${toLabelCase(order.paymentMethod)} / ${toLabelCase(order.paymentStatus)}</p>
-            ${order.notes ? `<p><strong>Special Request:</strong> ${escapeHtml(order.notes)}</p>` : ''}
-            <table>
-              <thead><tr><th>Item</th><th class="center">Qty</th><th class="right">Rate</th><th class="right">Total</th></tr></thead>
-              <tbody>${itemRows}</tbody>
-            </table>
-            <p class="right">Subtotal: ${formatCurrency(order.pricing?.subTotal)}</p>
-            <p class="right">Discount: ${formatCurrency(order.pricing?.discountAmount || 0)}</p>
-            <p class="right">Tax: ${formatCurrency(order.pricing?.taxAmount || 0)}</p>
-            <p class="right total">Grand Total: ${formatCurrency(order.pricing?.grandTotal)}</p>
-            <p style="text-align:center;margin-top:14px;">Thank you</p>
+            <div class="brand">${escapeHtml(restaurantName)}</div>
+            <div class="center branch-name">${escapeHtml(branch.name)}</div>
+            <div class="center address">${escapeHtml(printSettings?.branchAddress || branch.address)}</div>
+            <div class="center phone">Phone: ${escapeHtml(printSettings?.phone || branch.phone)}</div>
+
+            <hr class="divider" />
+
+            <div class="meta-row"><span>Order</span><span class="bold">${escapeHtml(order.orderNumber)}</span></div>
+            <div class="meta-row"><span>Date</span><span>${escapeHtml(receiptDate)}</span></div>
+            <div class="meta-row"><span>Customer</span><span>${escapeHtml(order.customer?.name || 'Guest')}</span></div>
+            <div class="meta-row"><span>Phone</span><span>${escapeHtml(order.customer?.phone || '-')}</span></div>
+            <div class="meta-row"><span>Payment</span><span class="bold">${escapeHtml(String(order.paymentMethod || '').toUpperCase())} / ${escapeHtml(String(order.paymentStatus || '').toUpperCase())}</span></div>
+            ${order.notes ? `<div class="meta-row"><span>Notes</span><span>${escapeHtml(order.notes)}</span></div>` : ''}
+
+            <hr class="divider" />
+
+            <div class="items-head">
+              <span>Item</span>
+              <span class="head-qty">Qty</span>
+              <span class="head-amount">Amount</span>
+            </div>
+            ${itemRows}
+
+            <hr class="divider" />
+
+            <div class="totals">
+              <div class="total-row"><span>Subtotal</span><span>${receiptMoney(order.pricing?.subTotal)}</span></div>
+              ${discountRow}
+              <div class="total-row"><span>Tax</span><span>${receiptMoney(order.pricing?.taxAmount)}</span></div>
+              <div class="grand-row"><span>Total</span><span>${receiptMoney(order.pricing?.grandTotal)}</span></div>
+            </div>
+
+            <hr class="divider" />
+            <div class="footer">${escapeHtml(printSettings?.footerMessage || 'Thank you for your order!')}</div>
           </div>
           <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 300); };</script>
         </body>
